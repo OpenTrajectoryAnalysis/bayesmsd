@@ -52,7 +52,7 @@ class SplineFit(Fit):
 
     Parameters
     ----------
-    data : TaggedSet of Trajectory
+    data : noctiluca.TaggedSet, pandas.DataFrame, list of numpy.ndarray
         the data to fit. See `Fit`.
     ss_order : {0, 1}
         the steady state order to assume

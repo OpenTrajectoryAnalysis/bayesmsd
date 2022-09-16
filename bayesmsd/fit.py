@@ -13,6 +13,8 @@ from tqdm.auto import tqdm
 import numpy as np
 from scipy import optimize
 
+from noctiluca import make_TaggedSet
+
 from . import gp
 from .deco import method_verbosity_patch
 
@@ -25,9 +27,21 @@ class Fit(metaclass=ABCMeta):
 
     Parameters
     ----------
-    data : `TaggedSet` of `Trajectory`
-        the data to use. Note that the current selection in the data is saved
-        internally
+    data : noctiluca.TaggedSet, pandas.DataFrame, list of numpy.ndarray
+        the data to run the fit on.
+
+        This input is handled by the `userinput.make_TaggedSet()
+        <https://noctiluca.readthedocs.io/en/latest/noctiluca.util.html#noctiluca.util.userinput.make_TaggedSet>`_
+        function of the `noctiluca` package and thus accepts a range of
+        formats. A dataset of trajectories with ``N`` loci, ``T`` frames, and
+        ``d`` spatial dimensions can be specified as list of numpy arrays with
+        dimensions ``(N, T, d)``, ``(T, d)``, ``(T,)``, where ``T`` can vary
+        between trajectories but ``N`` and ``d`` should be the same. A pandas
+        dataframe should have columns ``(particle, frame, x1, y1, z1, x2, y2,
+        z2, ...)``, where ``particle`` identifies which trajectory each entry
+        belongs to, which ``frame`` is the frame number in which it was
+        detected. For precise specs see `noctiluca.util.userinput
+        <https://noctiluca.readthedocs.io/en/latest/noctiluca.util.html#module-noctiluca.util.userinput>`_.
 
     Attributes
     ----------
@@ -123,7 +137,7 @@ class Fit(metaclass=ABCMeta):
     with the initial values provided via `initial_params`.
     """
     def __init__(self, data):
-        self.data = data
+        self.data = make_TaggedSet(data)
         self.data_selection = data.saveSelection()
         self.d = data.map_unique(lambda traj: traj.d)
         self.T = max(map(len, self.data))
