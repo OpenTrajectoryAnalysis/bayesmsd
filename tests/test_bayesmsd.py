@@ -174,7 +174,7 @@ class TestRouseLoci(myTestCase):
             fit = bayesmsd.lib.NPXFit(self.data, ss_order=0, n=0)
 
         with self.assertRaises(ValueError):
-            data = self.data.process(lambda traj: nl.Trajectory(traj[:][:, 0]))
+            data = self.data.apply(lambda traj: nl.Trajectory(traj[:][:, 0]))
             fit = bayesmsd.lib.NPXFit(data, ss_order=0, n=5,
                                     previous_NPXFit_and_result = (new2_fit, new2_res),
                                     )
@@ -215,7 +215,7 @@ class TestProfiler(myTestCase):
     @patch('builtins.print')
     def testGeneric(self, mockprint=None):
         with Pool(5) as mypool:
-            with nl.util.Parallelize(mypool.imap, mypool.imap_unordered):
+            with nl.Parallelize(mypool.imap, mypool.imap_unordered):
                 # conditional posterior
                 profiler = bayesmsd.Profiler(self.fit, bracket_step=1.1, profiling=False)
                 profiler.run_fit()

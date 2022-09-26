@@ -20,7 +20,7 @@ import numpy as np
 from scipy import linalg
 
 from noctiluca import Trajectory, TaggedSet
-from noctiluca.util import parallel
+from noctiluca import parallel
 
 ################## Covariance in terms of MSD #################################
 
@@ -208,7 +208,7 @@ def ds_logL(data, ss_order, msd_ms):
 
     See also
     --------
-    Fit, noctiluca.util.parallel
+    Fit, noctiluca.parallel
     """
     # msd_ms : list of tuples: d*[(msd, m)]
     # Implementation note: it does *not* make sense to allow a single tuple for

@@ -41,7 +41,7 @@ import numpy as np
 from scipy import linalg, optimize, stats
 
 from noctiluca import Trajectory, TaggedSet
-from noctiluca.util import parallel
+from noctiluca import parallel
 
 def method_verbosity_patch(meth):
     """
