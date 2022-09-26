@@ -236,11 +236,11 @@ class SplineFit(Fit):
             # For ss_order == 0 we will use it as boundary condition,
             # for ss_order == 1 this will be the initial MSD
             e_msd = MSD(self.data)
-            t_valid = np.nonzero(~np.isnan(e_msd))[0][1:] # skip msd[0] = 0
+            dt_valid = np.nonzero(~np.isnan(e_msd))[0][1:] # skip msd[0] = 0
             (A, B), _ = optimize.curve_fit(lambda x, A, B : A*x + B,
-                                           self.compactify(t_valid),
-                                           np.log(e_msd[t_valid]),
-                                           p0=(1, np.log(e_msd[1])),
+                                           self.compactify(dt_valid),
+                                           np.log(e_msd[dt_valid]),
+                                           p0=(1, np.log(e_msd[dt_valid[0]])),
                                            bounds=([0, -np.inf], np.inf),
                                           )
                 
@@ -248,7 +248,7 @@ class SplineFit(Fit):
                 # interpolate along 2-point spline
                 ss_var = np.nanmean(np.concatenate([traj.abs()[:][:, 0]**2 for traj in self.data]))
                 csp = interpolate.CubicSpline(np.array([0, 2]),
-                                              np.log([e_msd[1], 2*ss_var]),
+                                              np.log([e_msd[dt_valid[0]], 2*ss_var]),
                                               bc_type = ((1, A), (1, 0.)),
                                              )
                 y_init = csp(x_init)
@@ -489,7 +489,7 @@ class NPXFit(Fit): # NPX = Noise + Powerlaw + X (i.e. spline)
 
             for dim in range(self.d):
                 ioff = (2*self.n+3)*dim
-                params[ioff:(ioff+3)] = [np.log(e_msd[1]/2), logG, alpha]
+                params[ioff:(ioff+3)] = [np.log(e_msd[dt_valid[0]]/2), logG, alpha]
 
             if self.n > 0:
                 x0, logt0, y0, dcdx0 = self._first_spline_point(0.5, logG, alpha)
@@ -633,9 +633,12 @@ class TwoLocusRouseFit(Fit):
         Initial parameters from empirical MSD
         """
         e_msd = MSD(self.data) / self.d
+        dt_valid = np.nonzero(~np.isnan(e_msd))[0][1:]
+        dt_valid_early = dt_valid[:min(5, len(dt_valid))]
+
         J = np.nanmean(np.concatenate([traj[:]**2 for traj in self.data], axis=0))
-        G = np.nanmean(e_msd[1:5]/np.sqrt(np.arange(1, 5)))
-        noise2 = e_msd[1]/2
+        G = np.nanmean(e_msd[dt_valid_early]/np.sqrt(dt_valid_early))
+        noise2 = e_msd[dt_valid[0]]/2
 
         return np.log(np.array(self.d*[noise2, G, J]))
 
@@ -698,8 +701,11 @@ class OneLocusRouseFit(Fit):
         Initial parameters from empirical MSD
         """
         e_msd = MSD(self.data) / self.d
-        G = np.nanmean(e_msd[1:5]/np.sqrt(np.arange(1, 5)))
-        noise2 = e_msd[1]/2
+        dt_valid = np.nonzero(~np.isnan(e_msd))[0][1:]
+        dt_valid_early = dt_valid[:min(5, len(dt_valid))]
+
+        G = np.nanmean(e_msd[dt_valid_early]/np.sqrt(dt_valid_early))
+        noise2 = e_msd[dt_valid[0]]/2
 
         return np.log(np.array(self.d*[noise2, G]))
 
