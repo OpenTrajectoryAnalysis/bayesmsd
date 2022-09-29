@@ -9,6 +9,7 @@ Welcome to bayesmsd's documentation!
 .. toctree::
    :maxdepth: 2
 
+   examples
    bayesmsd
 
 

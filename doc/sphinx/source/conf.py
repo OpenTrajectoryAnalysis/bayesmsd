@@ -30,6 +30,8 @@ author = 'Simon Grosse-Holz'
 extensions = [
         'sphinx.ext.autodoc',
         'sphinx.ext.napoleon',
+        'nbsphinx',
+        'sphinx.ext.mathjax',
 ]
 
 autodoc_member_order = 'bysource'
@@ -38,6 +40,19 @@ napoleon_google_docstring = False
 napoleon_include_special_with_doc = True
 napoleon_use_param = True
 napoleon_use_rtype = False
+
+nbsphinx_execute = 'auto'
+nbsphinx_prompt_width = "0"
+nbsphinx_prolog = """
+.. raw:: html
+
+    <style>
+        .nbinput .prompt,
+        .npoutput .prompt {
+            display: none;
+        }
+    </style>
+"""
 
 # Add any paths that contain templates here, relative to this directory.
 # templates_path = ['_templates']

@@ -1,0 +1,5 @@
+ipykernel
+nbsphinx
+matplotlib
+numpy
+noctiluca
