@@ -179,29 +179,6 @@ class TestRouseLoci(myTestCase):
                                     previous_NPXFit_and_result = (new2_fit, new2_res),
                                     )
 
-class TestRouseSingleLocus(myTestCase):
-    def setUp(self):
-        model = rouse.Model(11)
-        tracked = 5
-        def traj():
-            conf = model.conf_ss()
-            traj = []
-            for _ in range(10):
-                conf = model.evolve(conf)
-                traj.append(conf[tracked])
-
-            return nl.Trajectory(traj)
-
-        self.data = nl.TaggedSet((traj() for _ in range(10)), hasTags=False)
-
-    def testFit(self):
-        fit = bayesmsd.lib.OneLocusRouseFit(self.data)
-        fit.fix_values += [(0, -np.inf), (2, -np.inf), (4, -np.inf)] # no localization error
-        res = fit.run(full_output=True, optimization_steps=(dict(method='Nelder-Mead', options={'fatol' : 0.1, 'xatol' : 0.01}),))[-1][0]
-
-        self.assertEqual(res['params'][0], -np.inf)
-        self.assertTrue(np.isfinite(res['params'][1]))
-
 class TestProfiler(myTestCase):
     # set up diffusive data set
     def setUp(self):
