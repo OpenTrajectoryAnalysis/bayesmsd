@@ -36,6 +36,7 @@ bayesmsd
 from copy import deepcopy
 import itertools
 import inspect
+import functools
 
 import numpy as np
 from scipy import linalg, optimize, stats
@@ -47,6 +48,7 @@ def method_verbosity_patch(meth):
     """
     (internal) Decorator for class methods, temporarily changing verbosity
     """
+    @functools.wraps(meth)
     def wrapper(self, *args, verbosity=None, **kwargs):
         old_verbosity = self.verbosity
         if verbosity is not None:
