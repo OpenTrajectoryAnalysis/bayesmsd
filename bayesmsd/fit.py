@@ -138,8 +138,8 @@ class Fit(metaclass=ABCMeta):
     """
     def __init__(self, data):
         self.data = make_TaggedSet(data)
-        self.data_selection = data.saveSelection()
-        self.d = data.map_unique(lambda traj: traj.d)
+        self.data_selection = self.data.saveSelection()
+        self.d = self.data.map_unique(lambda traj: traj.d)
         self.T = max(map(len, self.data))
 
         # Fit properties
@@ -164,6 +164,14 @@ class Fit(metaclass=ABCMeta):
             print("[bayesmsd.Fit]", (v-1)*'--', *args, **kwargs)
         
     ### To be overwritten / used upon subclassing ###
+
+    @property # should declare @property when overriding
+    @abstractmethod
+    def parameter_names(self):
+        """
+        A list of names for the fit parameters, as defined by `!bounds`.
+        """
+        raise NotImplementedError # pragma: no cover
     
     @abstractmethod
     def params2msdm(self, params):
@@ -278,6 +286,15 @@ class Fit(metaclass=ABCMeta):
         return min(scores)
     
     ### General machinery, usually won't need overwriting ###
+
+    def parameter_index(self, name):
+        """
+        Give the index for a name from `!parameter_names`
+        """
+        try:
+            return np.nonzero(np.array(self.parameter_names) == name)[0][0]
+        except IndexError:
+            raise ValueError(f"Did not find name '{name}' in self.parameter_names = {self.parameter_names}")
 
     def MSD(self, fitres, dt=None):
         """

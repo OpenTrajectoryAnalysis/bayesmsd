@@ -111,7 +111,7 @@ class SplineFit(Fit):
         else: # pragma: no cover
             raise ValueError(f"Did not understand ss_order = {ss_order}")
 
-        # Parameters are (n-2)*x_spline + n*y_spline
+        ### Parameters are (n-2)*x_spline + n*y_spline
         # The x-coordinates of the first and last spline points are fixed
         # For the bounds, note that x lives in the compactified interval [0, 1]
         # (or [0, 2]), while y = log(MSD) can be any real number. We use actual
@@ -120,6 +120,10 @@ class SplineFit(Fit):
         self.bounds = (self.n-2)*[(self.x_first, self.x_last)] + self.n*[(-np.inf, np.inf)]
 
         self.prev_fit = previous_spline_fit_and_result # for (alternative) initialization
+
+    @property
+    def parameter_names(self):
+        return [f"x{i}" for i in range(1, self.n-1)] + [f"y{i}" for i in range(self.n)]
 
     def compactify(self, dt):
         """
@@ -344,10 +348,10 @@ class NPXFit(Fit): # NPX = Noise + Powerlaw + X (i.e. spline)
         if n == 0 and ss_order == 0:
             raise ValueError("Incompatible assumptions: pure powerlaw (n=0) and trajectory steady state (ss_order=0)")
         self.n = n
+        self.ss_order = ss_order
         
         # Parameters are (log(noise2), log(Γ), α, x0, ..., x{n-1}, y1, .., yn)
         # If n == 0 we omit x0. So we always have 2*n spline parameters!
-        self.ss_order = ss_order
         # Take care to not attain the upper bound (2) for the exponent, as this
         # is where a pure powerlaw stops being positive definite
         self.bounds = self.d*([(-np.inf, np.inf), (-np.inf, np.inf), (0, 2-1e-10)]
@@ -379,6 +383,16 @@ class NPXFit(Fit): # NPX = Noise + Powerlaw + X (i.e. spline)
         self.prev_fit = previous_NPXFit_and_result # for (alternative) initialization
         if self.prev_fit and not self.prev_fit[0].d == self.d:
             raise ValueError(f"Previous NPXFit has different number of dimensions ({self.prev_fit[0].d}) from the current data set ({self.d}).")
+
+    @property
+    def parameter_names(self):
+        single = ['log(σ²)', 'log(Γ)', 'α'] \
+                + [f"x{i}" for i in range(self.n)] \
+                + [f"y{i}" for i in range(1, self.n+1)]
+        out = []
+        for dim in range(self.d):
+            out += [name+f" (dim {dim})" for name in single]
+        return out
 
     def compactify(self, dt):
         x = np.log(dt) / self.logT
@@ -603,6 +617,14 @@ class TwoLocusRouseFit(Fit):
         self.fix_values = [(3*dim+i, lambda x, i=i : x[i])
                            for dim in range(1, self.d)
                            for i in [1, 2]]
+
+    @property
+    def parameter_names(self):
+        single = ['log(σ²)', 'log(Γ)', 'log(J)']
+        out = []
+        for dim in range(self.d):
+            out += [name+f" (dim {dim})" for name in single]
+        return out
 
 #     def constraint_sigJ(self, params):
 #         logsig2 = params[[3*i   for i in range(self.d)]]

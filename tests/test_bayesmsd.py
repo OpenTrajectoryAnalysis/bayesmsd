@@ -131,7 +131,7 @@ class TestRouseLoci(myTestCase):
 
     def testRouse(self):
         fit = bayesmsd.lib.TwoLocusRouseFit(self.data, motion_blur_f=1)
-        fit.fix_values += [(0, -np.inf), (3, -np.inf), (6, -np.inf)] # no localization error
+        fit.fix_values += [('log(σ²) (dim 0)', -np.inf), (3, -np.inf), (6, -np.inf)] # no localization error
         res = fit.run(full_output=True, optimization_steps=(dict(method='Nelder-Mead', options={'fatol' : 0.1, 'xatol' : 0.01}),))[-1][0]
 
         self.assertEqual(res['params'][0], -np.inf)
@@ -315,6 +315,36 @@ class TestProfiler(myTestCase):
         self.assertAlmostEqual(roots[1], 0.73)
 
 class TestRandomStuff(myTestCase):
+    def test_names(self):
+        data = nl.TaggedSet([nl.Trajectory(np.zeros((5, 2)))], hasTags=False)
+
+        fit = bayesmsd.lib.SplineFit(data, ss_order=1, n=3)
+        self.assertListEqual(fit.parameter_names, ['x1', 'y0', 'y1', 'y2'])
+
+        fit = bayesmsd.lib.NPXFit(data, ss_order=0, n=2)
+        self.assertListEqual(fit.parameter_names,
+                ['log(σ²) (dim 0)', 'log(Γ) (dim 0)', 'α (dim 0)',
+                 'x0 (dim 0)', 'x1 (dim 0)', 'y1 (dim 0)', 'y2 (dim 0)',
+                 'log(σ²) (dim 1)', 'log(Γ) (dim 1)', 'α (dim 1)',
+                 'x0 (dim 1)', 'x1 (dim 1)', 'y1 (dim 1)', 'y2 (dim 1)',
+                 ])
+
+        fit = bayesmsd.lib.NPXFit(data, ss_order=1)
+        self.assertListEqual(fit.parameter_names,
+                ['log(σ²) (dim 0)', 'log(Γ) (dim 0)', 'α (dim 0)',
+                 'log(σ²) (dim 1)', 'log(Γ) (dim 1)', 'α (dim 1)',
+                 ])
+
+        fit = bayesmsd.lib.TwoLocusRouseFit(data)
+        self.assertListEqual(fit.parameter_names,
+                ['log(σ²) (dim 0)', 'log(Γ) (dim 0)', 'log(J) (dim 0)',
+                 'log(σ²) (dim 1)', 'log(Γ) (dim 1)', 'log(J) (dim 1)',
+                 ])
+
+        self.assertEqual(fit.parameter_index('log(Γ) (dim 0)'), 1)
+        with self.assertRaises(ValueError):
+            fit.parameter_index('log(Γ)')
+
     def test_MSD(self):
         data = nl.TaggedSet([nl.Trajectory([[1, 2, 3], [4, 5, 6]])], hasTags=False)
         fit = bayesmsd.lib.NPXFit(data, ss_order=1, n=0)
