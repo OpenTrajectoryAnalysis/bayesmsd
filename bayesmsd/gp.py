@@ -112,11 +112,14 @@ class BadCovarianceError(RuntimeError):
 def _GP_core_logL(C, x):
     # Implementation notes
     # - (slogdet, solve) is faster than eigendecomposition (~3x)
+    # - don't check positive definiteness here, that should be done before—if
+    #   necessary; c.f. Fit.constraint_Cpositive
     with np.errstate(under='ignore'):
         s, logdet = np.linalg.slogdet(C)
+
+    # Since we need logdet anyways, this is a check that we can do for free
     if s <= 0: # pragma: no cover
-        # Note that det > 0 does not imply positive definite
-        raise BadCovarianceError("Covariance not positive definite. slogdet = ({}, {})".format(s, logdet))
+        raise BadCovarianceError("Covariance matrix has negative determinant: slogdet = ({}, {})".format(s, logdet))
         
     try:
         xCx = x @ linalg.solve(C, x, assume_a='pos')
@@ -124,7 +127,7 @@ def _GP_core_logL(C, x):
         # what's the problematic case that made me insert this?
         # --> can (probably?) happen in numerical edge cases. Should usually be
         #     prevented by `Fit` in the first place
-        GP_vprint(3, f"Problem when inverting covariance, even though slogdet = ({s}, {logdet})")
+        GP_vprint(3, f"Problem when inverting covariance; slogdet = ({s}, {logdet})")
         GP_vprint(3, type(err), err)
         raise BadCovarianceError("Inverting covariance did not work")
 
