@@ -6,7 +6,8 @@ class Parameter():
     def __init__(self,
                  bounds=(-np.inf, np.inf),
                  fix_to=None,
-                 linearization=None
+                 linearization=None,
+                 max_linearization_moves=(10, 10),
                  ):
         self.bounds = np.array(bounds)
         self.fix_to = fix_to
@@ -17,7 +18,7 @@ class Parameter():
             self.linearization = linearization
 
         self.linearization.param = self
-        self.max_linearization_moves = (10, 10)
+        self.max_linearization_moves = max_linearization_moves
 
     # Copying
     # TL;DR: deepcopy()-ing Parameter objects works fine

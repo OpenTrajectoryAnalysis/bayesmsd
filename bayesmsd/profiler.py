@@ -497,7 +497,7 @@ class Profiler():
         pL_thres = self.point_estimate['logL'] - self.LR_target
 
         # Run
-        for n in range(1, param.max_linearization_moves[idir]):
+        for n in range(1, param.max_linearization_moves[idir]+1):
             # Next move
             p = param.linearization.move(pe, pe, direction*n)
             
