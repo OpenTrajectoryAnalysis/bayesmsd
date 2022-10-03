@@ -128,6 +128,8 @@ noctiluca.util.mcmc, Fit, Profiler
 """
 from . import deco
 from . import gp
+from . import parameters
+from .parameters import Parameter
 from .fit import Fit
 from .profiler import Profiler
 from . import lib
