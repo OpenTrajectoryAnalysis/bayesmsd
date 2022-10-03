@@ -16,7 +16,16 @@ class Parameter():
         else:
             self.linearization = linearization
 
+        self.linearization.param = self
         self.max_linearization_moves = (10, 10)
+
+    # Copying
+    # TL;DR: deepcopy()-ing Parameter objects works fine
+    # copying `Parameter`s in principle could be problematic, since they
+    # recursively contain a reference to themselves:
+    # ``param.linearization.param is param``. Fortunately, copy.deepcopy() is
+    # prepared for this and correctly copies that self-reference as
+    # self-reference to the new object.
 
     def suggest_linearization(self):
         n_bounds_inf = np.sum(np.isinf(self.bounds))
@@ -29,8 +38,11 @@ class Parameter():
 
 class Linearize: # this is just a namespace
     class ABC(metaclass=ABCMeta):
-        def __init__(self, parameter):
-            self.param = parameter
+        def __init__(self):
+            # self.param should be set manually after initialization; this is
+            # necessary, since the Linearize instance should be passed to
+            # self.param upon initialization (Parameter.__init__()).
+            self.param = None
 
         @abstractmethod
         def from_linear(self, pe, n): # should be vectorized in n
@@ -50,9 +62,8 @@ class Linearize: # this is just a namespace
             return self.from_linear(pe, np.mean(self.to_linear(pe, x)))
 
     class Bounded(ABC):
-        def __init__(self, parameter, n_steps=10):
-            super().__init__(self, parameter)
-            assert np.isfinite(self.param.bounds[1]-self.param.bounds[0])
+        def __init__(self, n_steps=10):
+            super().__init__(self)
             self.n_steps = n_steps
 
         def from_linear(self, pe, n):
@@ -64,9 +75,8 @@ class Linearize: # this is just a namespace
             return self.n_steps * (x - bounds[0])/(bounds[1]-bounds[0])
 
     class Multiplicative(ABC):
-        def __init__(self, parameter, factor=2):
-            super().__init__(self, parameter)
-            assert self.param.bounds[0]*self.param.bounds[1] > 0
+        def __init__(self, factor=2):
+            super().__init__(self)
             self.log_factor = np.log(factor)
 
         def from_linear(self, pe, n):
@@ -76,8 +86,8 @@ class Linearize: # this is just a namespace
             return np.log(x/pe)/log_factor
 
     class Exponential(ABC):
-        def __init__(self, parameter, step=1):
-            super().__init__(self, parameter)
+        def __init__(self, step=1):
+            super().__init__(self)
             self.log_step = np.log(step)
 
         def from_linear(self, pe, n):
