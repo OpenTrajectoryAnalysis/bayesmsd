@@ -33,16 +33,10 @@ See also
 --------
 bayesmsd
 """
-from copy import deepcopy
-import itertools
 import inspect
 import functools
 
 import numpy as np
-from scipy import linalg, optimize, stats
-
-from noctiluca import Trajectory, TaggedSet
-from noctiluca import parallel
 
 def method_verbosity_patch(meth):
     """
@@ -129,13 +123,9 @@ def imaging(noise2=0, f=0, alpha0=1):
     noise2 : float >= 0
         the variance (σ²) of the Gaussian localization error to add
     f : float, 0 <= f <= 1
-        the exposure time as fraction of the frame time. Should usually be
-        set to ``self.motion_blur_f``.
+        the exposure time as fraction of the frame time.
     alpha0 : float, 0 <= alpha0 <= 2
-        the effective short time scaling exponent. Should usually come from
-        ``self.alpha0()``, which returns a list of exponents for each
-        dimension.
-
+        the effective short time scaling exponent.
     Notes
     -----
     ``f = 0`` is ideal stroboscopic illumination, i.e. no motion blur.
