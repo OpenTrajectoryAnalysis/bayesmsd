@@ -247,7 +247,7 @@ def generate(msd_def, T, n=1):
 
     Parameters
     ----------
-    msd_def : 2-tuple
+    msd_def : tuple
         one of two options:
          + ``(fit, res)`` where `!fit` is an instance of `Fit` (e.g. one of the
            classes from `lib`) and ``res`` is the result of a previous run of
@@ -266,8 +266,7 @@ def generate(msd_def, T, n=1):
     TaggedSet
         a data set containing the drawn trajectories
     """
-    from .fit import Fit # bad style, but we're just instance checking
-    if isinstance(msd_def[0], Fit):
+    if len(msd_def) == 2:
         fit, res = msd_def
         ss_order = fit.ss_order
 

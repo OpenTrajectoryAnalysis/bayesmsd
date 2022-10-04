@@ -144,8 +144,8 @@ class Fit(metaclass=ABCMeta):
 
         # Fit properties
         self.ss_order = 0
-        self.bounds = [] # List of (lb, ub), to be passed to optimize.minimize. len(bounds) is used to count parameters!
-        self.fix_values = [] # will be appended to the list passed to run()
+        self.parameters = {} # should be dict of parameters.Parameter instances
+        # `params` arguments will then be dicts as well
 
         # Each constraint should be a callable constr(params) -> x. We will apply:
         #   x <= 0                : infeasible. Maximum penalization
@@ -164,14 +164,6 @@ class Fit(metaclass=ABCMeta):
             print("[bayesmsd.Fit]", (v-1)*'--', *args, **kwargs)
         
     ### To be overwritten / used upon subclassing ###
-
-    @property # should declare @property when overriding
-    @abstractmethod
-    def parameter_names(self):
-        """
-        A list of names for the fit parameters, as defined by `!bounds`.
-        """
-        raise NotImplementedError # pragma: no cover
     
     @abstractmethod
     def params2msdm(self, params):
@@ -183,8 +175,8 @@ class Fit(metaclass=ABCMeta):
 
         Parameters
         ----------
-        params : np.ndarray
-            the current parameters
+        params : dict
+            the current parameter values
 
         Returns
         -------
@@ -208,8 +200,8 @@ class Fit(metaclass=ABCMeta):
 
         Parameters
         ----------
-        params : np.ndarray
-            the current parameters
+        params : dict
+            the current parameter values
 
         Returns
         -------
@@ -228,9 +220,9 @@ class Fit(metaclass=ABCMeta):
 
         Returns
         -------
-        params : np.ndarray
-            initial values for the parameters. Should satisfy ``len(params) ==
-            len(self.bounds)``.
+        params : dict
+            initial values for the parameters. Should have the same keys as
+            ``self.parameters``.
         """
         raise NotImplementedError # pragma: no cover
 
@@ -287,25 +279,15 @@ class Fit(metaclass=ABCMeta):
     
     ### General machinery, usually won't need overwriting ###
 
-    def parameter_index(self, name):
-        """
-        Give the index for a name from `!parameter_names`
-        """
-        try:
-            return np.nonzero(np.array(self.parameter_names) == name)[0][0]
-        except IndexError:
-            raise ValueError(f"Did not find name '{name}' in self.parameter_names = {self.parameter_names}")
-
-    def MSD(self, fitres, dt=None):
+    def MSD(self, params, dt=None):
         """
         Return the MSD evaluated at dt. Convenience function
 
         Parameters
         ----------
-        fitres : dict
-            the output of a previous fit run. Specifically, this should be a
-            dict having an entry ``'params'`` that is a 1d ``np.array``
-            containing the parameter values.
+        params : dict
+            the current parameter values. Like the ``'params'`` entry of the
+            output dict from any fit.
         dt : array-like
             the time lags (in frames) at which to evaluate the MSD. If left
             unspecified, we return a callable MSD function
@@ -317,18 +299,18 @@ class Fit(metaclass=ABCMeta):
         callable or np.array
             the MSD function (summed over all dimensions), evaluated at `!dt` if provided.
         """
-        def msdfun(dt, params=fitres['params'], **kwargs):
+        def msdfun(dt, params=params, **kwargs):
             msdm = self.params2msdm(params)
             return np.sum([msd(dt, **kwargs) for msd, m in msdm], axis=0)
 
         if dt is None:
             # Write proper signature to docstring
-            single_msdfun = self.params2msdm(fitres['params'])[0][0]
+            single_msdfun = self.params2msdm(params)[0][0]
             if hasattr(single_msdfun, '_kwargstring'):
                 msdfun.__doc__ = f"""full signature:
 
 msdfun(dt,
-       params={fitres['params']},
+       params={params},
        {single_msdfun._kwargstring},
       )
 
@@ -344,7 +326,7 @@ msdfun(dt,
 
         Parameters
         ----------
-        params : np.ndarray
+        params : dict
 
         Returns
         -------
@@ -367,21 +349,20 @@ msdfun(dt,
 
     def expand_fix_values(self, fix_values=None):
         """
-        Preprocessing for fixed parameters. Mostly internal use.
+        Assemble full list of values to fix (internal + given)
 
-        This function concatenates the internal ``self.fix_values`` and the
-        given ``fix_values``, and makes sure that they all conform to the
-        format ``(i, function)``, i.e. it converts fixed values given as
-        constants to (trivial) functions.
+        Merge the given `!fix_values` with the parameter-level specifications
+        and ensure that all entries are appropriate callables (can also be
+        specified as numerical constants or other parameter names)
 
         Parameters
         ----------
-        fix_values : list of tuples (i, fix_to), optional
+        fix_values : dict, optional
             values to fix, beyond what's already in ``self.fix_values``
 
         Returns
         -------
-        fix_values : list
+        fix_values : dict
             same as input, plus internal ``self.fix_values`` and constants
             resolved
 
@@ -389,143 +370,75 @@ msdfun(dt,
         --------
         Fit.fix_values, get_value_fixer
         """
-        # Converts fix_values to useable format (i, function)
-        # Also appends self.fix_values
-        if fix_values is None:
-            fix_values = []
-        fix_values = fix_values + self.fix_values
-        
-        ifix = [i for i, _ in fix_values]
-        _, ind = np.unique(ifix, return_index=True)
-        full = []
-        for i in ind:
-            ip, fun = fix_values[i]
-            if not callable(fun):
-                fun = lambda x, val=fun : val # `fun` is (initially) of course a misnomer in this case
+        # Merge input and fit-internal fix_values (input takes precedence)
+        fix_values_in = fix_values if fix_values is not None else {}
+        fix_values = {name : param.fix_to
+                      for name, param in self.parameters.items()
+                      if param.fix_to is not None}
+        fix_values.update(fix_values_in)
 
-            full.append((ip, fun))
-        return full
+        # Resolve constants (parameter names or numerical)
+        for name, fix_to in fix_values.items():
+            if not callable(fix_values[name]):
+                if fix_to in self.parameters:
+                    fix_values[name] = lambda x, name=fix_to : x[name]
+                else:
+                    fix_values[name] = lambda x, val=fix_to : val
 
-    def number_of_fit_parameters(self, fix_values=None):
+        return fix_values
+
+    def independent_fit_parameters(self, fix_values=None):
         """
-        Get the number of independent fit parameters
-
-        The number of independent fit parameters is the full number of
-        parameters (``len(params)``) minus the number of parameters that are
-        fixed via the ``fix_values`` mechanism. This function is provided for
-        convenience.
+        Return the names of the independent (not fixed) parameters
 
         Parameters
         ----------
-        fix_values : list of tuples (i, fix_to), optional
+        fix_values : dict
             should be the same as was / will be handed to `run`
 
         Returns
         -------
-        int
-            the number of fit parameters
+        list of str
+            a list with the names of the independent parameters, i.e. those
+            that are not fixed to some other value
         """
-        n_fixed = len(self.expand_fix_values(fix_values)) # also ensures uniqueness of indices
-        return len(self.bounds) - n_fixed
+        if fix_values is None:
+            fix_values = {}
+
+        return [name for name in self.parameters if (name not in fix_values and self.parameters[name].fix_to is None)]
                 
-    def get_value_fixer(self, fix_values=None):
-        """
-        Create a function that resolves fixed parameters
+    class MinTarget:
+        def __init__(self, fit, fix_values=None, offset=0):
+            self.fit = fit
 
-        Parameters
-        ----------
-        fix_values : list of tuples (i, fix_to), optional
-            values to fix, beyond what's already in ``self.fix_values``
+            self.fix_values = self.fit.expand_fix_values(fix_values)
+            self.param_names = self.fit.independent_fit_parameters(self.fix_values)
 
-        Returns
-        -------
-        fixer : callable
-            a function with signature ``fixer(params) --> params``, where in
-            the output array all parameters fixes are applied.
-        """
-        fix_values = self.expand_fix_values(fix_values)
+            self.offset = offset
 
-        n_params = len(self.bounds)
-        is_fixed = np.zeros(n_params, dtype=bool)
-        for i, _ in fix_values:
-            is_fixed[i] = True
-        
-        def value_fixer(params, fix_values=fix_values, is_fixed=is_fixed, n_params=n_params):
-            if len(params) == n_params:
-                fixed_params = params.copy()
-            elif len(params) + np.sum(is_fixed) == n_params:
-                fixed_params = np.empty(n_params, dtype=float)
-                fixed_params[:] = np.nan
-                fixed_params[~is_fixed] = params
-            else: # pragma: no cover
-                raise RuntimeError(f"Did not understand how to fix up parameters: len(params) = {len(params)}, sum(is_fixed) = {np.sum(is_fixed)}, n_params = {n_params}")
+        def params_array2dict(self, params_array):
+            params = dict(zip(self.param_names, params_array))
+            params.update({name : fixfun(params)
+                           for name, fixfun in self.fix_values.items()})
+            return params
 
-            for ip, fixfun in fix_values:
-                fixed_params[ip] = fixfun(fixed_params)
-            
-            return fixed_params
+        def params_dict2array(self, params):
+            return np.array([params[name] for name in self.param_names])
 
-        return value_fixer
-    
-    def get_min_target(self, offset=0, fix_values=None, do_fixing=True):
-        """
-        Define the minimization target (negative log-likelihood)
+        def __call__(self, params_array):
+            params = self.params_array2dict(params_array)
 
-        Parameters
-        ----------
-        offset : float
-            constant to subtract from log-likelihood. See Notes section of
-            class doc.
-        fix_values : list of tuples (i, fix_to)
-            values to fix, beyond what's already in ``self.fix_values``
-        do_fixing : bool
-            set to ``False`` to prevent the minimization target from resolving
-            any of the parameter fixes (by default). Might be useful when
-            exploring parameter space.
-
-        Returns
-        -------
-        min_target : callable
-            function with signature ``min_target(params) --> float``.
-
-        Notes
-        -----
-        The returned ``min_target`` takes additional keyword arguments:
-
-        - ``just_return_full_params`` : bool, ``False`` by default. If
-          ``True``, don't calculate the actual target function, just return the
-          parameter values after fixing
-        - ``do_fixing`` : bool, defaults to `!do_fixing` as given to
-          `get_min_target`.
-        - fixer, offset : just handed over as arguments for style (scoping)
-
-        See also
-        --------
-        run
-        """
-        fixer = self.get_value_fixer(fix_values)
-        
-        def min_target(params, just_return_full_params=False,
-                       do_fixing=do_fixing, fixer=fixer, offset=offset,
-                       ):
-            if do_fixing:
-                params = fixer(params)
-            if just_return_full_params:
-                return params
-
-            penalty = self._penalty(params)
+            penalty = self.fit._penalty(params)
             if penalty < 0: # infeasible
-                return self.max_penalty
+                return self.fit.max_penalty
             else:
-                return -gp.ds_logL(self.data,
-                                   self.ss_order,
-                                   self.params2msdm(params),
+                return -gp.ds_logL(self.fit.data,
+                                   self.fit.ss_order,
+                                   self.fit.params2msdm(params),
                                   ) \
-                       - self.logprior(params) \
+                       - self.fit.logprior(params) \
                        + penalty \
-                       - offset
-
-        return min_target
+                       - self.offset
 
     @method_verbosity_patch
     def run(self,
@@ -543,9 +456,8 @@ msdfun(dt,
         ----------
         init_from : dict
             initial point for the fit, as a dict with fields ``'params'`` and
-            ``'logL'``, like the ones this function returns. If you just want
-            to initialize from a certain parameter point, you can set
-            ``init_from['logL'] = 0``.
+            ``'logL'``, like the ones this function returns. The ``'logL'``
+            entry is optional; you can also leave it out or set to 0.
         optimization_steps : tuple
             successive optimization steps to perform. Entries should be
             ``'simplex'`` for Nelder-Mead, ``'gradient'`` for gradient descent,
@@ -554,7 +466,7 @@ msdfun(dt,
         maxfev : int or None
             limit on function evaluations for ``'simplex'`` or ``'gradient'``
             optimization steps
-        fix_values : list of tuples (i, fix_to)
+        fix_values : dict
             can be used to keep some parameter values fixed or express them as
             function of the other parameters. See class doc for more details.
         full_output : bool
@@ -582,19 +494,21 @@ msdfun(dt,
         
         # Initial values
         if init_from is None:
-            p0 = self.initial_params()
-            total_offset = self.initial_offset()
+            initial_params = self.initial_params()
+            initial_offset = self.initial_offset()
         else:
-            p0 = deepcopy(init_from['params'])
-            total_offset = -init_from['logL']
-        
-        # Adjust for fixed values
-        ifix = [i for i, _ in self.expand_fix_values(fix_values)]
-        bounds = deepcopy(self.bounds)
-        for i in sorted(ifix, reverse=True):
-            del bounds[i]
-            p0[i] = np.nan
-        p0 = p0[~np.isnan(p0)]
+            initial_params = deepcopy(init_from['params'])
+            try:
+                initial_offset = -init_from['logL']
+            except KeyError:
+                initial_offset = 0
+
+        # Set up the minimization target function
+        # also allows us to convert initial_params to appropriate array
+        min_target = Fit.MinTarget(self, fix_values, initial_offset)
+
+        p0 = min_target.params_dict2array(initial_params)
+        bounds = [self.parameters[name].bounds for name in min_target.param_names]
         
         # Set up progress bar
         bar = tqdm(disable = not show_progress)
@@ -639,7 +553,6 @@ msdfun(dt,
                                  )
                     kwargs.update(step)
                     
-                min_target = self.get_min_target(offset=total_offset, fix_values=fix_values)
                 try:
                     fitres = optimize.minimize(min_target, p0, **kwargs)
                 except gp.BadCovarianceError as err: # pragma: no cover
@@ -652,11 +565,11 @@ msdfun(dt,
                     self.vprint(1, '\n', fitres)
                     raise RuntimeError("Fit failed at step {:d}: {:s}".format(istep, step))
                 else:
-                    all_res.append(({'params' : min_target(fitres.x, just_return_full_params=True),
-                                     'logL' : -(fitres.fun+total_offset),
+                    all_res.append(({'params' : min_target.params_array2dict(fitres.x),
+                                     'logL' : -(fitres.fun+min_target.offset),
                                     }, fitres))
                     p0 = fitres.x
-                    total_offset += fitres.fun
+                    min_target.offset += fitres.fun
                     
         bar.close()
         

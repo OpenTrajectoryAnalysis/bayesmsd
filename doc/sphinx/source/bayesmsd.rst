@@ -39,6 +39,14 @@ bayesmsd.lib
    :undoc-members:
    :show-inheritance:
 
+bayesmsd.parameters
+-------------------
+
+.. automodule:: bayesmsd.parameters
+   :members:
+   :undoc-members:
+   :show-inheritance:
+
 bayesmsd.profiler
 -----------------
 

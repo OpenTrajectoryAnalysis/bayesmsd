@@ -20,11 +20,12 @@ from multiprocessing import Pool
 exec "norm jjd}O" | let @a="\n'" | exec "g/^class Test/norm w\"Ayt(:let @a=@a.\"',\\n'\"" | norm i__all__ = ["ap}kddO]kV?__all__j>>
 """
 __all__ = [
+    'TestParameters',
     'TestDiffusive',
     'TestRouseLoci',
-    'TestRouseSingleLocus',
     'TestProfiler',
     'TestRandomStuff',
+    'TestNewImplementation',
 ]
 
 # We test mostly the library implementations, since the base class `Fit` is
@@ -32,7 +33,7 @@ __all__ = [
 # 
 # We also test on so few data that all the results are useless and we don't
 # attempt to check for correctness of the fit. This code is supposed to be
-# technical tests and not benchmarks, so it should run fast.
+# technical tests and not benchmarks, so it should run fast (-ish).
 # 
 # These tests are organized not by fit class, but by synthetic motion type
 
@@ -56,6 +57,59 @@ class myTestCase(unittest.TestCase):
             print(err)
         self.assertTrue(res)
 
+    def assert_mci_almost_equal(self, mci1, mci2, places=2):
+        self.assertEqual(mci1.keys(), mci2.keys())
+        for key in mci1:
+            m1, ci1 = mci1[key]
+            m2, ci2 = mci2[key]
+
+            self.assertAlmostEqual(m1, m2, places=places)
+            self.assert_array_almost_equal(ci1, ci2, decimal=places)
+
+class TestParameters(myTestCase):
+    def _test_linearization(self, lin, pes, x, n):
+        for pe in pes:
+            self.assert_array_almost_equal(lin.from_linear(pe,
+                                            lin.to_linear(pe, x)),
+                                           x)
+            self.assert_array_almost_equal(lin.to_linear(pe,
+                                            lin.from_linear(pe, n)),
+                                           n)
+
+    def test_parameter_and_linearization(self):
+        L = bayesmsd.parameters.Linearize
+
+        param = bayesmsd.Parameter()
+        self.assert_array_equal(param.bounds, [-np.inf, np.inf])
+        self.assertIs(param, param.linearization.param)
+        self.assertIsInstance(param.linearization, L.Exponential)
+        self._test_linearization(param.linearization,
+            np.array([-10, -3.7, 0.01, 5.4, 70.9]),
+            np.array([-101, -37.5, -1.3, 0., 7.8, 18.9]),
+            np.array([-10, -5, 0, 3, 7]),
+        )
+
+        param = bayesmsd.Parameter((0, 1))
+        self.assertIs(param, param.linearization.param)
+        self.assertIsInstance(param.linearization, L.Bounded)
+        self._test_linearization(param.linearization,
+            np.array([0, 0.1, 0.37, 0.54, 0.709, 1]),
+            np.array([-1.01, -0.375, 0., 0.13, 0.78, 1., 18.9]),
+            np.array([-10, -5, 0, 3, 7]),
+        )
+
+        param = bayesmsd.Parameter((1, np.inf))
+        self.assertIs(param, param.linearization.param)
+        self.assertIsInstance(param.linearization, L.Multiplicative)
+        self._test_linearization(param.linearization,
+            np.array([1, 2, 5, 7.8, 100.8]),
+            np.array([1.3, 7.8, 18.9, 37.5, 101]),
+            np.array([-10, -5, 0, 3, 7]),
+        )
+
+        param = bayesmsd.Parameter((1, np.inf), linearization=L.Bounded)
+        self.assertIs(param, param.linearization.param)
+
 class TestDiffusive(myTestCase):
     def setUp(self):
         def traj():
@@ -67,14 +121,22 @@ class TestDiffusive(myTestCase):
         fit = bayesmsd.lib.SplineFit(self.data, ss_order=1, n=4)
         res = fit.run(verbosity=0, maxfev=500)
 
-        for i in [0, 1]:
-            self.assertGreater(res['params'][i], 0)
-            self.assertLess(res['params'][i], 1)
+        for name in ["x1", "x2"]:
+            self.assertGreater(res['params'][name], 0)
+            self.assertLess(res['params'][name], 1)
 
         # provoke penalization
-        res2 = fit.run(init_from={'params' : np.array([1e-8, 0.5, 0, 0, 0, 0]), 'logL' : 0})
+        res2 = fit.run(init_from={'params' : {"x1" : 1e-8,
+                                              "x2" : 0.5,
+                                              "y0" : 0, "y1" : 0,
+                                              "y2" : 0, "y3" : 0,
+                                              }})
         # provoke "infinite" penalization
-        res2 = fit.run(init_from={'params' : np.array([1e-20, 0.5, 0, 0, 0, 0]), 'logL' : 0})
+        res2 = fit.run(init_from={'params' : {"x1" : 1e-20,
+                                              "x2" : 0.5,
+                                              "y0" : 0, "y1" : 0,
+                                              "y2" : 0, "y3" : 0,
+                                              }})
 
         # check compactify / decompactify cycle
         dt = np.array([1, 5, 23, 100, 579, np.inf])
@@ -112,30 +174,38 @@ class TestRouseLoci(myTestCase):
         fit = bayesmsd.lib.SplineFit(self.data, ss_order=0, n=4)
         res = fit.run()
 
-        for i in [0, 1]:
-            self.assertGreater(res['params'][i], 0)
-            self.assertLess(res['params'][i], 2)
+        for name in ["x1", "x2"]:
+            self.assertGreater(res['params'][name], 0)
+            self.assertLess(res['params'][name], 2)
 
-        self.assertEqual(fit.number_of_fit_parameters(), 6)
+        self.assertSetEqual(set(fit.independent_fit_parameters()),
+                            {'x1', 'x2', 'y0', 'y1', 'y2', 'y3'})
 
         # Test refining a spline fit
         fit2 = bayesmsd.lib.SplineFit(self.data, ss_order=0, n=6,
                                     previous_spline_fit_and_result = (fit, res),
                                     )
 
-        self.assertEqual(fit2.number_of_fit_parameters(), 10)
+        self.assertSetEqual(set(fit2.independent_fit_parameters()),
+                            {      'x1', 'x2', 'x3', 'x4',
+                             'y0', 'y1', 'y2', 'y3', 'y4', 'y5',
+                            })
 
         with self.assertRaises(RuntimeError):
             res2 = fit2.run(optimization_steps=('gradient',), maxfev=10)
 
-
     def testRouse(self):
         fit = bayesmsd.lib.TwoLocusRouseFit(self.data, motion_blur_f=1)
-        fit.fix_values += [('log(σ²) (dim 0)', -np.inf), (3, -np.inf), (6, -np.inf)] # no localization error
+
+        # no localization error
+        for dim in range(fit.d):
+            fit.parameters[f"log(σ²) (dim {dim})"].fix_to = -np.inf 
+
         res = fit.run(full_output=True, optimization_steps=(dict(method='Nelder-Mead', options={'fatol' : 0.1, 'xatol' : 0.01}),))[-1][0]
 
-        self.assertEqual(res['params'][0], -np.inf)
-        self.assertEqual(fit.number_of_fit_parameters(), 2)
+        self.assertEqual(res['params']['log(σ²) (dim 0)'], -np.inf)
+        self.assertSetEqual(set(fit.independent_fit_parameters()),
+                            {'log(Γ) (dim 0)', 'log(J) (dim 0)'})
 
     @patch('builtins.print')
     def testNPX(self, mock_print):
@@ -194,30 +264,29 @@ class TestProfiler(myTestCase):
         with Pool(5) as mypool:
             with nl.Parallelize(mypool.imap, mypool.imap_unordered):
                 # conditional posterior
-                profiler = bayesmsd.Profiler(self.fit, bracket_step=1.1, profiling=False)
+                profiler = bayesmsd.Profiler(self.fit, profiling=False)
+                with self.assertRaises(RuntimeError):
+                    profiler.find_single_MCI("y0")
                 profiler.run_fit()
                 res = profiler.best_estimate # just checking some path within best_estimate
 
+                # ensure more than one bracketing step
+                profiler.fit.parameters['y0'].linearization.step=0.01
                 mci_c = profiler.find_MCI()
-                self.assertLess(np.mean(np.abs(mci_c[:, [1, 2]] - mci_c[:, [0]])), 1)
+                profiler.fit.parameters['y0'].linearization.step=1.
+                self.assertLess(np.mean([np.abs(ci - m) for m, ci in mci_c.values()]), 1)
 
                 # profile posterior
-                profiler = bayesmsd.Profiler(self.fit,
-                                           bracket_strategy={
-                                               'multiplicative' : True,
-                                               'step' : 1.1,
-                                               'nonidentifiable_cutoffs' : [10, 10],
-                                           },
-                                           profiling=True,
-                                          )
+                profiler = bayesmsd.Profiler(self.fit, profiling=True)
                 mci_p = profiler.find_MCI()
-                self.assertLess(np.mean(np.abs(mci_p[:, [1, 2]] - mci_p[:, [0]])), 1)
+                self.assertLess(np.mean([np.abs(ci - m) for m, ci in mci_p.values()]), 1)
 
                 # check best_estimate in the case where it's not the point estimate
                 res = profiler.best_estimate
                 self.assertIs(res, profiler.point_estimate)
-                res['params'][0] -= 1
-                res['logL'] = -profiler.fit.get_min_target()(res['params'])
+                res['params']["y1"] -= 1
+                params_array = profiler.min_target_from_fit.params_dict2array(res['params'])
+                res['logL'] = -profiler.min_target_from_fit(params_array)
                 self.assertIsNot(profiler.best_estimate, res)
 
                 # Artificially create a situation with a bad point estimate
@@ -227,10 +296,11 @@ class TestProfiler(myTestCase):
                 profiler.point_estimate = res
                 mci2_p = profiler.find_MCI()
 
-                self.assertLess(np.max(np.abs(mci_p-mci2_p)), 0.01)
+                self.assert_mci_almost_equal(mci_p, mci2_p, places=2)
 
                 # check replacement of gradient fit by simplex
-                # this will still fail, because the simplex also can't work with maxfev=1
+                # this will still fail, because the simplex also can't work
+                # with maxfev=1
                 with self.assertRaises(RuntimeError):
                     profiler.run_fit(init_from=profiler.point_estimate, maxfev=1)
 
@@ -239,7 +309,7 @@ class TestProfiler(myTestCase):
                 profiler.point_estimate = res
                 mci2_c = profiler.find_MCI()
 
-                self.assertLess(np.max(np.abs(mci_c-mci2_c)), 0.01)
+                self.assert_mci_almost_equal(mci_p, mci2_p, places=2)
 
     def testMaxFitRuns(self):
         profiler = bayesmsd.Profiler(self.fit, max_fit_runs=2)
@@ -247,23 +317,18 @@ class TestProfiler(myTestCase):
             profiler.find_MCI()
 
     def testNonidentifiability(self):
-        # also check bracket_strategy = list
-        profiler = bayesmsd.Profiler(self.fit, bracket_strategy=2*[{
-                                            'multiplicative' : False,
-                                            'step' : 1e-5,
-                                            'nonidentifiable_cutoffs' : [1e-5, 1e-5],
-                                            }])
-        mci = profiler.find_MCI()
-        self.assert_array_equal(mci[:, [1, 2]], [[-np.inf, np.inf], [-np.inf, np.inf]])
-    
-    def testSingleiparam(self):
-        self.fit.bounds[1] = (1e-10, np.inf) # make 'auto' brackets multiplicative
-        profiler = bayesmsd.Profiler(self.fit)
-        mci = profiler.find_MCI(iparam=1)
-        self.assertTupleEqual(mci.shape, (3,))
+        names = ['y0', 'y1']
+        for name in names:
+            self.fit.parameters[name].max_linearization_moves=(0, 0)
 
+        profiler = bayesmsd.Profiler(self.fit)
+        mci = profiler.find_MCI()
+
+        for name in names:
+            self.assert_array_equal(mci[name][1], [-np.inf, np.inf])
+    
     def test_singleparam_no_profiling(self):
-        self.fit.bounds = [(-np.inf, np.inf)]
+        self.fit.parameters['y0'].fix_to = 0
         profiler = bayesmsd.Profiler(self.fit, profiling=True, verbosity=0)
         self.assertFalse(profiler.profiling)
 
@@ -271,99 +336,88 @@ class TestProfiler(myTestCase):
         profiler = bayesmsd.Profiler(self.fit)
         profiler.run_fit()
         res = profiler.point_estimate
-        profiler.expand_bracket_strategy()
+        profiler.cur_param = "y0"
 
-        profiler.iparam = 0
-        closest = profiler.find_closest_res(res['params'][0])
+        closest = profiler.find_closest_res(res['params']["y0"])
         self.assertIs(closest, res)
 
         with self.assertRaises(RuntimeError):
-            closest = profiler.find_closest_res(res['params'][0] + 1, direction=1)
-
-    def testBracketStrategy(self):
-        self.fit.bounds = [(-1, np.inf), (0, 2)]
-        profiler = bayesmsd.Profiler(self.fit, profiling=False)
-
-        pe_params = np.array([0, 0.1])
-        profiler.point_estimate = {'params' : pe_params,
-                                   'logL' : profiler.min_target_from_fit(pe_params),
-                                   }
-        profiler.expand_bracket_strategy()
-
-        for strat in profiler.bracket_strategy:
-            self.assertFalse(strat['multiplicative'])
-
-        profiler.iparam = 1
-        profiler.min_target_from_fit = lambda *args, **kwargs : np.inf
-        p, pL = profiler.iterate_bracket_point(0.01, profiler.point_estimate['logL'], -1)
-        self.assertEqual(p, 0)
+            closest = profiler.find_closest_res(res['params']["y0"] + 1, direction=1)
 
     def testLikelihoodShapes(self):
         profiler = bayesmsd.Profiler(self.fit, profiling=False)
-        profiler.iparam=0
-
-        profiler.fit.bounds = [(0, 1), (0, 1)]
-        profiler.point_estimate = {'params' : np.array([0.5, 0.5]),
-                                   'logL' : 0.,
-                                  }
 
         # Hit bounds while bracketing (leftwards)
         # Hit jump while bisecting    (rightwards)
-        profiler.min_target_from_fit = lambda params: 0. if params[0] < 0.73 else 1e10
-        m, roots = profiler.find_single_MCI(0)
+        profiler.fit.parameters['y0'].bounds = (0, 1)
+        profiler.fit.parameters['y1'].bounds = (0, 1)
+        profiler.point_estimate = {'params' : {'y0' : 0.5, 'y1' : 0.5},
+                                   'logL' : 0.,
+                                  }
+
+        # <some ugly hacking to get a user-defined likelihood function>
+        min_target = self.fit.MinTarget(self.fit)
+        def _min_target(self, params_array):
+            params = min_target.params_array2dict(params_array)
+            return 0 if params['y0'] < 0.73 else 1e10
+
+# vvvvvvvvvvvvvvvvvvvvv
+        MinTarget__call__ = type(min_target).__call__
+        type(min_target).__call__ = _min_target
+# ^^^^^^^^^^^^^^^^^^^^^
+
+        profiler.min_target_from_fit = min_target
+
+        m, roots = profiler.find_MCI("y0")["y0"]
         self.assertEqual(roots[0], 0)
         self.assertAlmostEqual(roots[1], 0.73)
 
+# vvvvvvvvvvvvvvvvvvvvv
+        type(min_target).__call__ = MinTarget__call__
+# ^^^^^^^^^^^^^^^^^^^^^
+
 class TestRandomStuff(myTestCase):
-    def test_names(self):
-        data = nl.TaggedSet([nl.Trajectory(np.zeros((5, 2)))], hasTags=False)
-
-        fit = bayesmsd.lib.SplineFit(data, ss_order=1, n=3)
-        self.assertListEqual(fit.parameter_names, ['x1', 'y0', 'y1', 'y2'])
-
-        fit = bayesmsd.lib.NPXFit(data, ss_order=0, n=2)
-        self.assertListEqual(fit.parameter_names,
-                ['log(σ²) (dim 0)', 'log(Γ) (dim 0)', 'α (dim 0)',
-                 'x0 (dim 0)', 'x1 (dim 0)', 'y1 (dim 0)', 'y2 (dim 0)',
-                 'log(σ²) (dim 1)', 'log(Γ) (dim 1)', 'α (dim 1)',
-                 'x0 (dim 1)', 'x1 (dim 1)', 'y1 (dim 1)', 'y2 (dim 1)',
-                 ])
-
-        fit = bayesmsd.lib.NPXFit(data, ss_order=1)
-        self.assertListEqual(fit.parameter_names,
-                ['log(σ²) (dim 0)', 'log(Γ) (dim 0)', 'α (dim 0)',
-                 'log(σ²) (dim 1)', 'log(Γ) (dim 1)', 'α (dim 1)',
-                 ])
-
-        fit = bayesmsd.lib.TwoLocusRouseFit(data)
-        self.assertListEqual(fit.parameter_names,
-                ['log(σ²) (dim 0)', 'log(Γ) (dim 0)', 'log(J) (dim 0)',
-                 'log(σ²) (dim 1)', 'log(Γ) (dim 1)', 'log(J) (dim 1)',
-                 ])
-
-        self.assertEqual(fit.parameter_index('log(Γ) (dim 0)'), 1)
-        with self.assertRaises(ValueError):
-            fit.parameter_index('log(Γ)')
-
     def test_MSD(self):
         data = nl.TaggedSet([nl.Trajectory([[1, 2, 3], [4, 5, 6]])], hasTags=False)
         fit = bayesmsd.lib.NPXFit(data, ss_order=1, n=0)
-        params = np.array(data[0].d*[-np.inf, 0.387, 0.89])
+        params = {
+            'log(σ²) (dim 0)' : -np.inf,
+             'log(Γ) (dim 0)' : 0.387,
+                  'α (dim 0)' : 0.89,
+            'log(σ²) (dim 1)' : -np.inf,
+             'log(Γ) (dim 1)' : 0.387,
+                  'α (dim 1)' : 0.89,
+            'log(σ²) (dim 2)' : -np.inf,
+             'log(Γ) (dim 2)' : 0.387,
+                  'α (dim 2)' : 0.89,
+        }
 
-        msd = fit.MSD(dict(params=params))
+        msd = fit.MSD(params)
         docstring = msd.__doc__
         self.assertIn(f"(dt,", docstring)
-        self.assertIn(f"{params[2]}", docstring)
-        self.assertIn(f"{np.exp(params[1]):.4f}"[:-1], docstring) # prevent rounding, just truncate
+        self.assertIn(f"{params['α (dim 0)']}", docstring)
+        self.assertIn(f"{np.exp(params['log(Γ) (dim 0)']):.4f}"[:-1], docstring) # prevent rounding, just truncate
 
         dt = np.arange(1, 10)
-        self.assert_array_almost_equal(msd(dt), data[0].d*np.exp(params[2]*np.log(dt) + params[1]))
-        self.assert_array_almost_equal(msd(dt), fit.MSD(dict(params=params), dt))
+        logG  = params['log(Γ) (dim 0)']
+        alpha = params[     'α (dim 0)']
+        self.assert_array_almost_equal(msd(dt), data[0].d*np.exp(alpha*np.log(dt) + logG))
+        self.assert_array_almost_equal(msd(dt), fit.MSD(params, dt))
 
     def test_generate(self):
         data = nl.TaggedSet([nl.Trajectory([[1, 2, 3], [4, 5, 6]])], hasTags=False)
         fit = bayesmsd.lib.NPXFit(data, ss_order=1, n=0)
-        params = np.array(data[0].d*[-np.inf, 0.387, 0.89])
+        params = {
+            'log(σ²) (dim 0)' : -np.inf,
+             'log(Γ) (dim 0)' : 0.387,
+                  'α (dim 0)' : 0.89,
+            'log(σ²) (dim 1)' : -np.inf,
+             'log(Γ) (dim 1)' : 0.387,
+                  'α (dim 1)' : 0.89,
+            'log(σ²) (dim 2)' : -np.inf,
+             'log(Γ) (dim 2)' : 0.387,
+                  'α (dim 2)' : 0.89,
+        }
 
         data_sample = bayesmsd.gp.generate((fit, dict(params=params)), 10, n=2)
         self.assertEqual(len(data_sample), 2)
@@ -372,17 +426,29 @@ class TestRandomStuff(myTestCase):
         self.assertTrue(np.all(np.array([traj[0] for traj in data_sample]) == 0))
 
         fit = bayesmsd.lib.NPXFit(data, ss_order=0, n=1)
-        params = np.array(data[0].d*[-np.inf, 0.387, 0.89, 0.5, 1])
+        params = {'log(σ²)' : -np.inf,
+                  'log(Γ)' : 0.387, 'α' : 0.89,
+                  'x0' : 0.5, 'y1' : 1,
+                  }
+        for name in list(params.keys()):
+            params.update({f"{name} (dim {dim})" : params[name] for dim in range(fit.d)})
+            del params[name]
         data_sample = bayesmsd.gp.generate((fit, dict(params=params)), 10, n=2)
 
         fit = bayesmsd.lib.TwoLocusRouseFit(data)
-        params = np.array(data[0].d*[-np.inf, 0., 1.])
-        data_sample = bayesmsd.gp.generate((fit.MSD(dict(params=params)), 0, 1), 10, n=2)
+        params = {'log(σ²)' : -np.inf,
+                  'log(Γ)' : 0.,
+                  'log(J)' : 1.,
+                  }
+        for name in list(params.keys()):
+            params.update({f"{name} (dim {dim})" : params[name] for dim in range(fit.d)})
+            del params[name]
+        data_sample = bayesmsd.gp.generate((fit.MSD(params), 0, 1), 10, n=2)
         self.assertEqual(len(data_sample), 2)
         self.assertEqual(len(data_sample[0]), 10)
         self.assertEqual(data_sample[0].d, 1)
 
-        data_sample = bayesmsd.gp.generate((fit.MSD(dict(params=params)), 1, 1), 10, n=2)
+        data_sample = bayesmsd.gp.generate((fit.MSD(params), 1, 1), 10, n=2)
 
 class TestNewImplementation(myTestCase):
     def test_MSDfun(self):

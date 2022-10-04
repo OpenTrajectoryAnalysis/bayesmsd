@@ -16,6 +16,8 @@ This module provides some commonly used MSD fits. Most notably:
   parameters for each fit can be obtained from `Fit.number_of_fit_parameters
   <bayesmsd.fit.Fit.number_of_fit_parameters>`.
 """
+from copy import deepcopy
+
 import numpy as np
 from scipy import optimize, interpolate
 
@@ -24,6 +26,7 @@ from noctiluca.analysis.p2 import MSD
 
 from . import deco
 from .fit import Fit
+from .parameters import Parameter, Linearize
 
 class SplineFit(Fit):
     """
@@ -111,19 +114,22 @@ class SplineFit(Fit):
         else: # pragma: no cover
             raise ValueError(f"Did not understand ss_order = {ss_order}")
 
-        ### Parameters are (n-2)*x_spline + n*y_spline
-        # The x-coordinates of the first and last spline points are fixed
-        # For the bounds, note that x lives in the compactified interval [0, 1]
-        # (or [0, 2]), while y = log(MSD) can be any real number. We use actual
-        # 0 as bound instead of 1e-10 to signal the Profiler that this is not a
-        # logarithmic quantity.
-        self.bounds = (self.n-2)*[(self.x_first, self.x_last)] + self.n*[(-np.inf, np.inf)]
+        # x lives in the compactified interval [0, 1] (or [0, 2]), while y =
+        # log(MSD) can be any real number.
+        self.parameters = {}
+        for i in range(self.n):
+            self.parameters[f"x{i}"] = Parameter((self.x_first, self.x_last),
+                                                 linearization=Linearize.Bounded(),
+                                                 )
+            self.parameters[f"y{i}"] = Parameter((-np.inf, np.inf),
+                                                 linearization=Linearize.Exponential(),
+                                                 )
+
+        # x0 = x_first and x(n-1) = x_last are fixed
+        del self.parameters["x0"]
+        del self.parameters[f"x{self.n-1}"]
 
         self.prev_fit = previous_spline_fit_and_result # for (alternative) initialization
-
-    @property
-    def parameter_names(self):
-        return [f"x{i}" for i in range(1, self.n-1)] + [f"y{i}" for i in range(self.n)]
 
     def compactify(self, dt):
         """
@@ -180,8 +186,11 @@ class SplineFit(Fit):
         --------
         params2msdm
         """
-        x = np.array([self.x_first, *params[:(self.n-2)], self.x_last])
-        y = params[(self.n-2):]
+        x = np.array([self.x_first]
+                   + [params[f"x{i}"] for i in range(1, self.n-1)]
+                   + [self.x_last]
+                    )
+        y = [params[f"y{i}"] for i in range(self.n)]
         return interpolate.CubicSpline(x, y, bc_type=self.bc_type)
 
     def params2msdm(self, params):
@@ -260,8 +269,10 @@ class SplineFit(Fit):
                 y_init = A*x_init + B
             else: # pragma: no cover
                 raise ValueError
-            
-        return np.array([*x_init[1:-1], *y_init])
+
+        out = {f"x{i}" : x for i, x in enumerate(x_init[1:-1], start=1)}
+        out.update({f"y{i}" : y for i, y in enumerate(y_init)})
+        return out
 
     def initial_offset(self):
         """
@@ -301,7 +312,10 @@ class SplineFit(Fit):
         Fit
         """
         min_step = 1e-7 # x is compactified to (0, 1)
-        x = np.array([self.x_first, *params[:(self.n-2)], self.x_last])
+        x = np.array([self.x_first]
+                   + [params[f"x{i}"] for i in range(1, self.n-1)]
+                   + [self.x_last]
+                    )
         return np.min(np.diff(x))/min_step
     
     # this should (!) be taken care of by the Cpositive constraint
@@ -349,25 +363,52 @@ class NPXFit(Fit): # NPX = Noise + Powerlaw + X (i.e. spline)
             raise ValueError("Incompatible assumptions: pure powerlaw (n=0) and trajectory steady state (ss_order=0)")
         self.n = n
         self.ss_order = ss_order
-        
-        # Parameters are (log(noise2), log(Γ), α, x0, ..., x{n-1}, y1, .., yn)
-        # If n == 0 we omit x0. So we always have 2*n spline parameters!
-        # Take care to not attain the upper bound (2) for the exponent, as this
-        # is where a pure powerlaw stops being positive definite
-        self.bounds = self.d*([(-np.inf, np.inf), (-np.inf, np.inf), (0, 2-1e-10)]
-                              + n*[(0, 2 if ss_order == 0 else 1)] + n*[(-np.inf, np.inf)])
 
+        # Set up parameters
+        # Populate with templates -> expand dimensions -> remove templates
+        # The powerlaw stops being positive definite at α = 2, so stay away from that
+        self.parameters = {
+            'log(σ²)' : Parameter((-np.inf, np.inf),
+                                  linearization=Linearize.Exponential()),
+            'log(Γ)'  : Parameter((-np.inf, np.inf),
+                                  linearization=Linearize.Exponential()),
+            'α'       : Parameter((0, 2-1e-10), # stay away from upper bound
+                                  linearization=Linearize.Bounded()),
+        }
+
+        x_bounds = (0, 2) if self.ss_order == 0 else (0, 1)
+        for i in range(self.n+1):
+            self.parameters[f"x{i}"] = Parameter(x_bounds,
+                                                 linearization=Linearize.Bounded())
+            self.parameters[f"y{i}"] = Parameter((-np.inf, np.inf),
+                                                 linearization=Linearize.Exponential())
+
+        # For the spline, y0 and xn are fixed
+        del self.parameters["y0"]
+        del self.parameters[f"x{self.n}"]
+
+        # Expand dimensions and remove templates
+        # Fix higher dimensions to dim 0, except for localization error
+        param_names = list(self.parameters.keys()) # keys() itself is mutable
+        for name in param_names:
+            for dim in range(self.d):
+                dim_name = f"{name} (dim {dim})"
+                self.parameters[dim_name] = deepcopy(self.parameters[name])
+
+                if name != 'log(σ²)' and dim > 0:
+                    self.parameters[dim_name].fix_to = f"{name} (dim 0)"
+
+            del self.parameters[name]
+
+        # Set up constraints
         self.constraints = [self.constraint_dx,
                             self.constraint_logmsd,
                             self.constraint_Cpositive,
                            ]
-        if self.n == 0: # don't need constraints
+        if self.n == 0: # pure powerlaw; don't need constraints
             self.constraints = []
 
-        self.fix_values = [((2*n+3)*dim + i, lambda x, i=i: x[i])
-                           for dim in range(1, self.d)
-                           for i in range(1, 2*n+3)]
-        
+        # Compactification & splines
         self.logT = np.log(self.T)
         if self.ss_order == 0:
             # Fit in 4/π*arctan(log) space and add point at infinity, i.e. x = 4/π*arctan(log(∞)) = 2
@@ -381,18 +422,8 @@ class NPXFit(Fit): # NPX = Noise + Powerlaw + X (i.e. spline)
             raise ValueError(f"Did not understand ss_order = {ss_order}")
 
         self.prev_fit = previous_NPXFit_and_result # for (alternative) initialization
-        if self.prev_fit and not self.prev_fit[0].d == self.d:
+        if self.prev_fit is not None and not self.prev_fit[0].d == self.d:
             raise ValueError(f"Previous NPXFit has different number of dimensions ({self.prev_fit[0].d}) from the current data set ({self.d}).")
-
-    @property
-    def parameter_names(self):
-        single = ['log(σ²)', 'log(Γ)', 'α'] \
-                + [f"x{i}" for i in range(self.n)] \
-                + [f"y{i}" for i in range(1, self.n+1)]
-        out = []
-        for dim in range(self.d):
-            out += [name+f" (dim {dim})" for name in single]
-        return out
 
     def compactify(self, dt):
         x = np.log(dt) / self.logT
@@ -423,11 +454,14 @@ class NPXFit(Fit): # NPX = Noise + Powerlaw + X (i.e. spline)
         csps = self.d*[None]
         if self.n > 0:
             for dim in range(self.d):
-                params_1d = params[((2*self.n+3)*dim):((2*self.n+3)*(dim+1))]
+                x0, logt0, y0, dcdx0 = self._first_spline_point(
+                                            params[f"x0 (dim {dim})"],
+                                            params[f"log(Γ) (dim {dim})"],
+                                            params[f"α (dim {dim})"],
+                                       )
 
-                x0, logt0, y0, dcdx0 = self._first_spline_point(*params_1d[[3, 1, 2]])
-                x = np.append(params_1d[3:(3+self.n)], self.x_last)
-                y = np.insert(params_1d[(3+self.n):(3+2*self.n)], 0, y0)
+                x = np.array(       [params[  f"x{i} (dim {dim})"] for i in range(self.n)] + [self.x_last]) 
+                y = np.array([y0] + [params[f"y{i+1} (dim {dim})"] for i in range(self.n)])
 
                 csps[dim] = interpolate.CubicSpline(x, y, bc_type=((1, dcdx0), self.upper_bc_type))
 
@@ -437,23 +471,19 @@ class NPXFit(Fit): # NPX = Noise + Powerlaw + X (i.e. spline)
         csps = self._params2csp(params)
         msdm = []
         for dim, csp in enumerate(csps):
-            params_1d = params[((2*self.n+3)*dim):((2*self.n+3)*(dim+1))]
-
             with np.errstate(under='ignore'): # if noise == 0
-                noise2, G = np.exp(params_1d[[0, 1]])
-            alpha = params_1d[2]
+                noise2 = np.exp(params[f"log(σ²) (dim {dim})"])
+                G      = np.exp(params[ f"log(Γ) (dim {dim})"])
+            alpha = params[f"α (dim {dim})"]
 
+            # Define "naked" MSD function
             if self.n == 0:
-                @deco.MSDfun
-                @deco.imaging(noise2=noise2, f=self.motion_blur_f, alpha0=alpha)
                 def msd(dt, G=G, alpha=alpha):
                     return G*(dt**alpha)
             else:
-                t0 = np.exp(self.decompactify_log(params_1d[3]))
+                t0 = np.exp(self.decompactify_log(params[f"x0 (dim {dim})"]))
 
-                @deco.MSDfun
-                @deco.imaging(noise2=noise2, f=self.motion_blur_f, alpha0=alpha)
-                def msd(dt, G=G, alpha=alpha, csp=csp):
+                def msd(dt, G=G, alpha=alpha, csp=csp, t0=t0):
                     out = G*(dt**alpha)
                     ind = dt > t0
                     if np.any(ind):
@@ -461,35 +491,42 @@ class NPXFit(Fit): # NPX = Noise + Powerlaw + X (i.e. spline)
                         out[ind] = np.exp(csp(x))
                     return out
 
+            # Apply MSD function decorators
+            msd = deco.imaging(noise2=noise2, f=self.motion_blur_f, alpha0=alpha)(msd)
+            msd = deco.MSDfun(msd)
+
             msdm.append((msd, 0))
         return msdm
             
     def initial_params(self):
-        params = np.empty((3+2*self.n)*self.d, dtype=float)
-        params[:] = np.nan
+        params = {}
 
         if self.prev_fit:
             fit, res = self.prev_fit
             csps = fit._params2csp(res['params'])
 
             for dim in range(self.d):
-                old_params_1d = res['params'][((2*fit.n+3)*dim):((2*fit.n+3)*(dim+1))]
-                ioff = (2*self.n + 3)*dim
-                params[ioff:(ioff+3)] = old_params_1d[:3]
-                if self.n == 0:
-                    continue
+                for name in ['log(σ²)', 'log(Γ)', 'α']:
+                    params[f"{name} (dim {dim})"] = res['params'][f"{name} (dim {dim})"]
 
-                if fit.n == 0 or old_params_1d[3] >= self.x_last: # note order of conditions: old_params_1d[3] only exists if fit.n > 0
-                    x_init = np.linspace(0.5, self.x_last, self.n+1)
-                    y_init = params[ioff+2]*self.decompactify_log(x_init) + params[ioff+1]
-                else:
-                    x_init = np.linspace(old_params_1d[3], self.x_last, self.n+1)
-                    y_init = csps[dim](x_init)
+                if self.n > 0:
+                    # Note order of conditions: x0 exists only if fit.n > 0
+                    if fit.n == 0 or res['params'][f"x0 (dim {dim})"] >= self.x_last:
+                        logG  = res['params'][f"log(Γ) (dim {dim})"]
+                        alpha = res['params'][     f"α (dim {dim})"]
 
-                params[(ioff+3):(ioff+3+self.n)] = x_init[:-1]
-                params[(ioff+3+self.n):(ioff+3+2*self.n)] = y_init[1:]
+                        x_init = np.linspace(0.5, self.x_last, self.n+1)
+                        y_init = alpha*self.decompactify_log(x_init) + logG
+                    else:
+                        x0 = res['params'][f"x0 (dim {dim})"]
+                        x_init = np.linspace(x0, self.x_last, self.n+1)
+                        y_init = csps[dim](x_init)
+
+                    params.update({f"x{i} (dim {dim})" : x for i, x in enumerate(x_init[:-1])})
+                    params.update({f"y{i} (dim {dim})" : y for i, y in enumerate(y_init[1:], start=1)})
+
         else:
-            # Fit linear (i.e. powerlaw), which is useful in both cases.
+            # Fit linear (i.e. powerlaw), which is useful in both (ss_order) cases.
             # For ss_order == 0 we will use it as boundary condition,
             # for ss_order == 1 this will be the initial MSD
             e_msd = MSD(self.data)/self.d
@@ -502,12 +539,14 @@ class NPXFit(Fit): # NPX = Noise + Powerlaw + X (i.e. spline)
                                               )
 
             for dim in range(self.d):
-                ioff = (2*self.n+3)*dim
-                params[ioff:(ioff+3)] = [np.log(e_msd[dt_valid[0]]/2), logG, alpha]
+                params[f"log(σ²) (dim {dim})"] = np.log(e_msd[dt_valid[0]]/2)
+                params[ f"log(Γ) (dim {dim})"] = logG
+                params[      f"α (dim {dim})"] = alpha
 
             if self.n > 0:
                 x0, logt0, y0, dcdx0 = self._first_spline_point(0.5, logG, alpha)
                 x_init = np.linspace(x0, self.x_last, self.n+1)
+
                 if self.ss_order == 0:
                     # interpolate along 2-point spline
                     ss_var = np.nanmean(np.concatenate([np.sum(traj[:]**2, axis=1) for traj in self.data]))/self.d
@@ -522,11 +561,9 @@ class NPXFit(Fit): # NPX = Noise + Powerlaw + X (i.e. spline)
                     raise ValueError
 
                 for dim in range(self.d):
-                    ioff = (2*self.n+3)*dim
-                    params[(ioff+3):(ioff+3+self.n)] = x_init[:-1]
-                    params[(ioff+3+self.n):(ioff+3+2*self.n)] = y_init[1:]
+                    params.update({f"x{i} (dim {dim})" : x for i, x in enumerate(x_init[:-1])})
+                    params.update({f"y{i} (dim {dim})" : y for i, y in enumerate(y_init[1:], start=1)})
 
-        assert ~np.any(np.isnan(params))
         return params
 
     def initial_offset(self):
@@ -543,20 +580,9 @@ class NPXFit(Fit): # NPX = Noise + Powerlaw + X (i.e. spline)
     def constraint_dx(self, params):
         # constraints are not applied if n == 0, so we can safely assume n > 0
         min_step = 1e-7 # x is compactified to (0, 1)
-        x = np.stack([np.append(params[((2*self.n+3)*dim + 3):((2*self.n+3)*dim + 3+self.n)], self.x_last)
-                      for dim in range(self.d)], axis=0)
+        x = np.array([[params[f"x{i} (dim {dim})"] for i in range(self.n)] + [self.x_last]
+                      for dim in range(self.d)])
         return np.min(np.diff(x, axis=-1))/min_step
-    
-    # Should (!) be taken care of by the Cpositive constraint
-#     def constraint_dy(self, params):
-#         # Ensure monotonicity in the MSD. This makes sense intuitively, but is it technically a condition?
-#         if self.n == 0:
-#             return np.inf
-#         
-#         min_step = 1e-7
-#         _, _, y0, _ = self._first_spline_point(*params[[3, 1, 2]])
-#         y = np.array([y0, *params[(self.n+3):]])
-#         return np.min(np.diff(y))/min_step
     
     def constraint_logmsd(self, params):
         # constraints are not applied if n == 0, so we can safely assume n > 0
@@ -565,13 +591,13 @@ class NPXFit(Fit): # NPX = Noise + Powerlaw + X (i.e. spline)
 
         csps = self._params2csp(params)
         x_full = self.compactify(np.arange(1, self.T))
-        xs = [x_full[x_full >= params[(2*self.n+3)*dim + 3]] for dim in range(self.d)]
+        xs = [x_full[x_full >= params[f"x0 (dim {dim})"]] for dim in range(self.d)]
 
         if all(len(x) == 0 for x in xs): # pragma: no cover
             return np.inf
 
         logmsd = np.concatenate([csp(x) for csp, x in zip(csps, xs)])
-        return (full_penalty - np.max(np.abs(logmsd)))/start_penalizing
+        return (full_penalty - np.max(np.abs(logmsd)))/(full_penalty - start_penalizing)
 
 class TwoLocusRouseFit(Fit):
     """
@@ -601,35 +627,25 @@ class TwoLocusRouseFit(Fit):
     data. In a standard setting this makes sense only for the localization
     error, so by default we fix Γ and J to be the same for all dimensions.
     """
-    # there was a constraint J > noise2 at some point. I don't remember why we would need this
-    # TODO: check this
     def __init__(self, data, k=1,
                  motion_blur_f=0,
                 ):
         super().__init__(data)
         self.motion_blur_f = motion_blur_f
         
-        # Parameters are log- (noise2, Γ, J)
         self.ss_order = 0
-        self.bounds = 3*self.d*[(-np.inf, np.inf)]
+        
+        self.parameters = {}
+        for name in ['log(σ²)', 'log(Γ)', 'log(J)']:
+            for dim in range(self.d):
+                dim_name = f"{name} (dim {dim})"
+                self.parameters[f"{name} (dim {dim})"] = Parameter((-np.inf, np.inf),
+                                                                   linearization=Linearize.Exponential())
+
+                if name != 'log(σ²)' and dim > 0:
+                    self.parameters[dim_name].fix_to = f"{name} (dim 0)"
+
         self.constraints = [] # Don't need to check Cpositive, will always be true for Rouse MSDs
-
-        self.fix_values = [(3*dim+i, lambda x, i=i : x[i])
-                           for dim in range(1, self.d)
-                           for i in [1, 2]]
-
-    @property
-    def parameter_names(self):
-        single = ['log(σ²)', 'log(Γ)', 'log(J)']
-        out = []
-        for dim in range(self.d):
-            out += [name+f" (dim {dim})" for name in single]
-        return out
-
-#     def constraint_sigJ(self, params):
-#         logsig2 = params[[3*i   for i in range(self.d)]]
-#         logJs   = params[[3*i+2 for i in range(self.d)]]
-#         return np.sum(logJs - logsig2) * 100
         
     def params2msdm(self, params):
         """
@@ -640,7 +656,9 @@ class TwoLocusRouseFit(Fit):
         msdm = []
         for dim in range(self.d):
             with np.errstate(under='ignore'): # if noise == 0
-                noise2, G, J = np.exp(params[(3*dim):(3*(dim+1))])
+                noise2 = np.exp(params[f"log(σ²) (dim {dim})"])
+                G      = np.exp(params[ f"log(Γ) (dim {dim})"])
+                J      = np.exp(params[ f"log(J) (dim {dim})"])
 
             @deco.MSDfun
             @deco.imaging(noise2=noise2, f=self.motion_blur_f, alpha0=0.5)
@@ -662,4 +680,10 @@ class TwoLocusRouseFit(Fit):
         G = np.nanmean(e_msd[dt_valid_early]/np.sqrt(dt_valid_early))
         noise2 = e_msd[dt_valid[0]]/2
 
-        return np.log(np.array(self.d*[noise2, G, J]))
+        params = {}
+        for dim in range(self.d):
+            params[f"log(σ²) (dim {dim})"] = np.log(noise2)
+            params[ f"log(Γ) (dim {dim})"] = np.log(G)
+            params[ f"log(J) (dim {dim})"] = np.log(J)
+
+        return params
