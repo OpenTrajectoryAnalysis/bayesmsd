@@ -20,6 +20,7 @@ from multiprocessing import Pool
 exec "norm jjd}O" | let @a="\n'" | exec "g/^class Test/norm w\"Ayt(:let @a=@a.\"',\\n'\"" | norm i__all__ = ["ap}kddO]kV?__all__j>>
 """
 __all__ = [
+    'TestParameters',
     'TestDiffusive',
     'TestRouseLoci',
     'TestProfiler',
@@ -64,6 +65,50 @@ class myTestCase(unittest.TestCase):
 
             self.assertAlmostEqual(m1, m2, places=places)
             self.assert_array_almost_equal(ci1, ci2, decimal=places)
+
+class TestParameters(myTestCase):
+    def _test_linearization(self, lin, pes, x, n):
+        for pe in pes:
+            self.assert_array_almost_equal(lin.from_linear(pe,
+                                            lin.to_linear(pe, x)),
+                                           x)
+            self.assert_array_almost_equal(lin.to_linear(pe,
+                                            lin.from_linear(pe, n)),
+                                           n)
+
+    def test_parameter_and_linearization(self):
+        L = bayesmsd.parameters.Linearize
+
+        param = bayesmsd.Parameter()
+        self.assert_array_equal(param.bounds, [-np.inf, np.inf])
+        self.assertIs(param, param.linearization.param)
+        self.assertIsInstance(param.linearization, L.Exponential)
+        self._test_linearization(param.linearization,
+            np.array([-10, -3.7, 0.01, 5.4, 70.9]),
+            np.array([-101, -37.5, -1.3, 0., 7.8, 18.9]),
+            np.array([-10, -5, 0, 3, 7]),
+        )
+
+        param = bayesmsd.Parameter((0, 1))
+        self.assertIs(param, param.linearization.param)
+        self.assertIsInstance(param.linearization, L.Bounded)
+        self._test_linearization(param.linearization,
+            np.array([0, 0.1, 0.37, 0.54, 0.709, 1]),
+            np.array([-1.01, -0.375, 0., 0.13, 0.78, 1., 18.9]),
+            np.array([-10, -5, 0, 3, 7]),
+        )
+
+        param = bayesmsd.Parameter((1, np.inf))
+        self.assertIs(param, param.linearization.param)
+        self.assertIsInstance(param.linearization, L.Multiplicative)
+        self._test_linearization(param.linearization,
+            np.array([1, 2, 5, 7.8, 100.8]),
+            np.array([1.3, 7.8, 18.9, 37.5, 101]),
+            np.array([-10, -5, 0, 3, 7]),
+        )
+
+        param = bayesmsd.Parameter((1, np.inf), linearization=L.Bounded)
+        self.assertIs(param, param.linearization.param)
 
 class TestDiffusive(myTestCase):
     def setUp(self):
@@ -220,10 +265,15 @@ class TestProfiler(myTestCase):
             with nl.Parallelize(mypool.imap, mypool.imap_unordered):
                 # conditional posterior
                 profiler = bayesmsd.Profiler(self.fit, profiling=False)
+                with self.assertRaises(RuntimeError):
+                    profiler.find_single_MCI("y0")
                 profiler.run_fit()
                 res = profiler.best_estimate # just checking some path within best_estimate
 
+                # ensure more than one bracketing step
+                profiler.fit.parameters['y0'].linearization.step=0.01
                 mci_c = profiler.find_MCI()
+                profiler.fit.parameters['y0'].linearization.step=1.
                 self.assertLess(np.mean([np.abs(ci - m) for m, ci in mci_c.values()]), 1)
 
                 # profile posterior
@@ -294,24 +344,6 @@ class TestProfiler(myTestCase):
         with self.assertRaises(RuntimeError):
             closest = profiler.find_closest_res(res['params']["y0"] + 1, direction=1)
 
-#     def testBracketStrategy(self):
-#         self.fit.bounds = [(-1, np.inf), (0, 2)]
-#         profiler = bayesmsd.Profiler(self.fit, profiling=False)
-# 
-#         pe_params = np.array([0, 0.1])
-#         profiler.point_estimate = {'params' : pe_params,
-#                                    'logL' : profiler.min_target_from_fit(pe_params),
-#                                    }
-#         profiler.expand_bracket_strategy()
-# 
-#         for strat in profiler.bracket_strategy:
-#             self.assertFalse(strat['multiplicative'])
-# 
-#         profiler.iparam = 1
-#         profiler.min_target_from_fit = lambda *args, **kwargs : np.inf
-#         p, pL = profiler.iterate_bracket_point(0.01, profiler.point_estimate['logL'], -1)
-#         self.assertEqual(p, 0)
-
     def testLikelihoodShapes(self):
         profiler = bayesmsd.Profiler(self.fit, profiling=False)
 
@@ -336,7 +368,7 @@ class TestProfiler(myTestCase):
 
         profiler.min_target_from_fit = min_target
 
-        m, roots = profiler.find_single_MCI("y0")
+        m, roots = profiler.find_MCI("y0")["y0"]
         self.assertEqual(roots[0], 0)
         self.assertAlmostEqual(roots[1], 0.73)
 
@@ -427,4 +459,4 @@ class TestNewImplementation(myTestCase):
         self.assertIn('_kwargstring', non_imaging_fun.__dict__)
 
 if __name__ == '__main__': # pragma: no cover
-    unittest.main(module=__file__[:-3])#, defaultTest='TestProfiler.testGeneric')
+    unittest.main(module=__file__[:-3])

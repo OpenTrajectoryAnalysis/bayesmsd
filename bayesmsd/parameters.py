@@ -31,11 +31,11 @@ class Parameter():
     def suggest_linearization(self):
         n_bounds_inf = np.sum(np.isinf(self.bounds))
         if n_bounds_inf == 0:
-            return Linearize.Bounded(self)
+            return Linearize.Bounded()
         elif n_bounds_inf == 1 and self.bounds[0]*self.bounds[1] > 0:
-            return Linearize.Multiplicative(self)
+            return Linearize.Multiplicative()
         else:
-            return Linearize.Exponential(self)
+            return Linearize.Exponential()
 
 class Linearize: # this is just a namespace
     class ABC(metaclass=ABCMeta):
@@ -47,11 +47,11 @@ class Linearize: # this is just a namespace
 
         @abstractmethod
         def from_linear(self, pe, n): # should be vectorized in n
-            raise NotImplementedError
+            raise NotImplementedError # pragma: no cover
 
         @abstractmethod
         def to_linear(self, pe, x): # should be vectorized in x
-            raise NotImplementedError
+            raise NotImplementedError # pragma: no cover
 
         def move(self, pe, x, n):
             return self.from_linear(pe, self.to_linear(pe, x) + n)
@@ -81,10 +81,10 @@ class Linearize: # this is just a namespace
             self.log_factor = np.log(factor)
 
         def from_linear(self, pe, n):
-            return pe*np.exp(log_factor*n)
+            return pe*np.exp(self.log_factor*n)
 
         def to_linear(self, pe, x):
-            return np.log(x/pe)/log_factor
+            return np.log(x/pe)/self.log_factor
 
     class Exponential(ABC):
         def __init__(self, step=1, base=2):

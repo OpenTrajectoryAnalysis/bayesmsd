@@ -622,7 +622,7 @@ class Profiler():
         """
         self.cur_param = param_name
         if self.point_estimate is None:
-            raise RuntimeError("Need to have a point estimate before calculating confidence intervals") # pragma: no cover
+            raise RuntimeError("Need to have a point estimate before calculating confidence intervals")
             
         m = self.point_estimate['params'][self.cur_param]
         m_pL = self.point_estimate['logL']
