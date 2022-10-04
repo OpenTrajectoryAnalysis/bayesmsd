@@ -369,19 +369,19 @@ class NPXFit(Fit): # NPX = Noise + Powerlaw + X (i.e. spline)
         # The powerlaw stops being positive definite at α = 2, so stay away from that
         self.parameters = {
             'log(σ²)' : Parameter((-np.inf, np.inf),
-                                  linearize=Linearize.Exponential()),
+                                  linearization=Linearize.Exponential()),
             'log(Γ)'  : Parameter((-np.inf, np.inf),
-                                  linearize=Linearize.Exponential()),
+                                  linearization=Linearize.Exponential()),
             'α'       : Parameter((0, 2-1e-10), # stay away from upper bound
-                                  linearize=Linearize.Bounded()),
+                                  linearization=Linearize.Bounded()),
         }
 
         x_bounds = (0, 2) if self.ss_order == 0 else (0, 1)
         for i in range(self.n+1):
             self.parameters[f"x{i}"] = Parameter(x_bounds,
-                                                 linearize=Linearize.Bounded())
+                                                 linearization=Linearize.Bounded())
             self.parameters[f"y{i}"] = Parameter((-np.inf, np.inf),
-                                                 linearize=Linearize.Exponential())
+                                                 linearization=Linearize.Exponential())
 
         # For the spline, y0 and xn are fixed
         del self.parameters["y0"]
@@ -523,7 +523,7 @@ class NPXFit(Fit): # NPX = Noise + Powerlaw + X (i.e. spline)
                         y_init = csps[dim](x_init)
 
                     params.update({f"x{i} (dim {dim})" : x for i, x in enumerate(x_init[:-1])})
-                    params.update({f"y{i} (dim {dim})" : y for i, y in enumerate(y_init[1:], start=1))
+                    params.update({f"y{i} (dim {dim})" : y for i, y in enumerate(y_init[1:], start=1)})
 
         else:
             # Fit linear (i.e. powerlaw), which is useful in both (ss_order) cases.
@@ -562,7 +562,7 @@ class NPXFit(Fit): # NPX = Noise + Powerlaw + X (i.e. spline)
 
                 for dim in range(self.d):
                     params.update({f"x{i} (dim {dim})" : x for i, x in enumerate(x_init[:-1])})
-                    params.update({f"y{i} (dim {dim})" : y for i, y in enumerate(y_init[1:], start=1))
+                    params.update({f"y{i} (dim {dim})" : y for i, y in enumerate(y_init[1:], start=1)})
 
         return params
 
@@ -681,7 +681,7 @@ class TwoLocusRouseFit(Fit):
         noise2 = e_msd[dt_valid[0]]/2
 
         params = {}
-        for dim in self.d:
+        for dim in range(self.d):
             params[f"log(σ²) (dim {dim})"] = np.log(noise2)
             params[ f"log(Γ) (dim {dim})"] = np.log(G)
             params[ f"log(J) (dim {dim})"] = np.log(J)

@@ -305,7 +305,7 @@ class Fit(metaclass=ABCMeta):
 
         if dt is None:
             # Write proper signature to docstring
-            single_msdfun = self.params2msdm(fitres['params'])[0][0]
+            single_msdfun = self.params2msdm(params)[0][0]
             if hasattr(single_msdfun, '_kwargstring'):
                 msdfun.__doc__ = f"""full signature:
 
@@ -347,6 +347,46 @@ msdfun(dt,
                 except FloatingPointError:
                     return self.max_penalty
 
+    def expand_fix_values(self, fix_values=None):
+        """
+        Assemble full list of values to fix (internal + given)
+
+        Merge the given `!fix_values` with the parameter-level specifications
+        and ensure that all entries are appropriate callables (can also be
+        specified as numerical constants or other parameter names)
+
+        Parameters
+        ----------
+        fix_values : dict, optional
+            values to fix, beyond what's already in ``self.fix_values``
+
+        Returns
+        -------
+        fix_values : dict
+            same as input, plus internal ``self.fix_values`` and constants
+            resolved
+
+        See also
+        --------
+        Fit.fix_values, get_value_fixer
+        """
+        # Merge input and fit-internal fix_values (input takes precedence)
+        fix_values_in = fix_values if fix_values is not None else {}
+        fix_values = {name : param.fix_to
+                      for name, param in self.parameters.items()
+                      if param.fix_to is not None}
+        fix_values.update(fix_values_in)
+
+        # Resolve constants (parameter names or numerical)
+        for name, fix_to in fix_values.items():
+            if not callable(fix_values[name]):
+                if fix_to in self.parameters:
+                    fix_values[name] = lambda x, name=fix_to : x[name]
+                else:
+                    fix_values[name] = lambda x, val=fix_to : val
+
+        return fix_values
+
     def independent_fit_parameters(self, fix_values=None):
         """
         Return the names of the independent (not fixed) parameters
@@ -367,148 +407,38 @@ msdfun(dt,
 
         return [name for name in self.parameters if (name not in fix_values and self.parameters[name].fix_to is None)]
                 
-    def expand_fix_values(self, fix_values=None):
-        """
-        Preprocessing for fixed parameters. Mostly internal use.
+    class MinTarget:
+        def __init__(self, fit, fix_values=None, offset=0):
+            self.fit = fit
 
-        Merge the given `!fix_values` with the internal dict and make sure that
-        all entries are appropriate callables (can also be specified as
-        numerical constants or other parameter names)
+            self.fix_values = self.fit.expand_fix_values(fix_values)
+            self.param_names = self.fit.independent_fit_parameters(self.fix_values)
 
-        Parameters
-        ----------
-        fix_values : dict, optional
-            values to fix, beyond what's already in ``self.fix_values``
+            self.offset = offset
 
-        Returns
-        -------
-        fix_values : dict
-            same as input, plus internal ``self.fix_values`` and constants
-            resolved
-
-        See also
-        --------
-        Fit.fix_values, get_value_fixer
-        """
-        # Merge input and internal fix_values (input takes precedence)
-        fix_values_in = fix_values if fix_values is not None else {}
-        fix_values = {name : param.fix_to
-                      for name, param in self.parameters.items()
-                      if param.fix_to is not None}
-        fix_values.update(fix_values_in)
-
-        # Resolve constants (parameter names or numerical)
-        for name, fix_to in fix_values.items():
-            if not callable(fix_values[name]):
-                if fix_to in self.parameters:
-                    fix_values[name] = lambda x, name=fix_to : x[name]
-                else:
-                    fix_values[name] = lambda x, val=fix_to : val
-
-        return fix_values
-
-    def get_params_preproc(self, fix_values=None, independent_param_names=None):
-        """
-        Assemble function to convert a "naked" array into a full params-dict
-
-        Parameters
-        ----------
-        fix_values : dict
-            values to fix, beyond what's already in ``self.fix_values``
-        independent_params_names : list of str, optional
-            list of parameters names for the entries in the "naked" parameter
-            array; should be the output of `independent_fit_parameters`, which
-            will be called by default to obtain this list. Can (and should) be
-            specified explicitly to ensure consistent parameter ordering.
-
-        Returns
-        -------
-        fixer : callable
-            a function with signature ``preproc(params_array) --> params``, where
-            the output is a dict with all fixes applied
-        """
-        if independent_param_names is None:
-            independent_param_names = self.independent_fit_parameters(fix_values)
-
-        fix_values = self.expand_fix_values(fix_values)
-
-        def preproc(params_array,
-                    fix_values=fix_values,
-                    independent_param_names=independent_param_names,
-                    ):
-            # Note that the below are two cleanly separate steps:
-            # - assemble dict from given values
-            # - run all fixfuns on those given values and then write to dict
-            params = dict(zip(independent_param_names, params_array))
+        def params_array2dict(self, params_array):
+            params = dict(zip(self.param_names, params_array))
             params.update({name : fixfun(params)
-                           for name, fixfun in fix_values.items()})
+                           for name, fixfun in self.fix_values.items()})
             return params
 
-        return preproc
-    
-    def get_min_target(self, offset=0,
-                       fix_values=None, independent_param_names=None,
-                       ):
-        """
-        Define the minimization target (negative log-likelihood)
+        def params_dict2array(self, params):
+            return np.array([params[name] for name in self.param_names])
 
-        Parameters
-        ----------
-        offset : float
-            constant to subtract from log-likelihood. See Notes section of
-            class doc.
-        fix_values : dict
-            values to fix, beyond what's already in ``self.fix_values``
-        independent_params_names : list of str, optional
-            list of parameters names for the entries in the "naked" parameter
-            array; should be the output of `independent_fit_parameters`, which
-            will be called by default to obtain this list. Can (and should) be
-            specified explicitly to ensure consistent parameter ordering.
-        do_fixing : bool
-            set to ``False`` to prevent the minimization target from resolving
-            any of the parameter fixes (by default). Might be useful when
-            exploring parameter space.
+        def __call__(self, params_array):
+            params = self.params_array2dict(params_array)
 
-        Returns
-        -------
-        min_target : callable
-            function with signature ``min_target(params) --> float``.
-
-        Notes
-        -----
-        The returned ``min_target`` takes additional keyword arguments:
-
-        - ``just_return_full_params`` : bool, ``False`` by default. If
-          ``True``, don't calculate the actual target function, just return the
-          parameter values after fixing
-        - preproc, offset : just handed over as arguments for style (scoping)
-
-        See also
-        --------
-        run
-        """
-        preproc = self.get_params_preproc(fix_values, independent_param_names)
-        
-        def min_target(params_array, just_return_full_params=False,
-                       do_fixing=do_fixing, preproc=preproc, offset=offset,
-                       ):
-            params = preproc(params_array)
-            if just_return_full_params:
-                return params
-
-            penalty = self._penalty(params)
+            penalty = self.fit._penalty(params)
             if penalty < 0: # infeasible
-                return self.max_penalty
+                return self.fit.max_penalty
             else:
-                return -gp.ds_logL(self.data,
-                                   self.ss_order,
-                                   self.params2msdm(params),
+                return -gp.ds_logL(self.fit.data,
+                                   self.fit.ss_order,
+                                   self.fit.params2msdm(params),
                                   ) \
-                       - self.logprior(params) \
+                       - self.fit.logprior(params) \
                        + penalty \
-                       - offset
-
-        return min_target
+                       - self.offset
 
     @method_verbosity_patch
     def run(self,
@@ -565,19 +495,20 @@ msdfun(dt,
         # Initial values
         if init_from is None:
             initial_params = self.initial_params()
-            total_offset = self.initial_offset()
+            initial_offset = self.initial_offset()
         else:
             initial_params = deepcopy(init_from['params'])
             try:
-                total_offset = -init_from['logL']
+                initial_offset = -init_from['logL']
             except KeyError:
-                total_offset = 0
-        
-        # Convert initial_params dict to an array with values for only the
-        # independent parameters
-        independent_param_names = self.independent_fit_parameters(fix_values)
-        p0 = np.array([initial_params[name] for name in independent_param_names])
-        bounds = [self.parameters[name].bounds for name in independent_param_names]
+                initial_offset = 0
+
+        # Set up the minimization target function
+        # also allows us to convert initial_params to appropriate array
+        min_target = Fit.MinTarget(self, fix_values, initial_offset)
+
+        p0 = min_target.params_dict2array(initial_params)
+        bounds = [self.parameters[name].bounds for name in min_target.param_names]
         
         # Set up progress bar
         bar = tqdm(disable = not show_progress)
@@ -622,11 +553,6 @@ msdfun(dt,
                                  )
                     kwargs.update(step)
                     
-                min_target = self.get_min_target(
-                                offset=total_offset,
-                                fix_values=fix_values,
-                                independent_param_names=independent_param_names,
-                                )
                 try:
                     fitres = optimize.minimize(min_target, p0, **kwargs)
                 except gp.BadCovarianceError as err: # pragma: no cover
@@ -639,11 +565,11 @@ msdfun(dt,
                     self.vprint(1, '\n', fitres)
                     raise RuntimeError("Fit failed at step {:d}: {:s}".format(istep, step))
                 else:
-                    all_res.append(({'params' : min_target(fitres.x, just_return_full_params=True),
-                                     'logL' : -(fitres.fun+total_offset),
+                    all_res.append(({'params' : min_target.params_array2dict(fitres.x),
+                                     'logL' : -(fitres.fun+min_target.offset),
                                     }, fitres))
                     p0 = fitres.x
-                    total_offset += fitres.fun
+                    min_target.offset += fitres.fun
                     
         bar.close()
         

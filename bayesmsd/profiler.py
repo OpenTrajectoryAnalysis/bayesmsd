@@ -147,9 +147,9 @@ class Profiler():
         self.verbosity = verbosity
 
         self.fit = fit
-        self.min_target_from_fit = self.fit.get_min_target()
+        self.min_target_from_fit = self.fit.MinTarget(self.fit)
 
-        self.ress = {name : [] for name in self.fit.independent_parameters()}
+        self.ress = {name : [] for name in self.fit.independent_fit_parameters()}
         self.point_estimate = None
         
         self.conf = conf
@@ -196,7 +196,6 @@ class Profiler():
     class FoundBetterPointEstimate(Exception):
         pass
     
-    @staticmethod
     def restart_if_better_pe_found(fun):
         """
         Decorator taking care of restarts
@@ -223,7 +222,7 @@ class Profiler():
                     # sense to keep the old results, since the parameters are different
                     if not self.profiling:
                         fit_kw['init_from'] = self.best_estimate
-                        self.ress = {name : [] for name in self.fit.independent_parameters()}
+                        self.ress = {name : [] for name in self.fit.independent_fit_parameters()}
                         self.point_estimate = None
 
                     # Get a new point estimate, starting from the better one we found
@@ -451,8 +450,9 @@ class Profiler():
         else:
             new_params = deepcopy(self.point_estimate['params'])
             new_params[self.cur_param] = value
-            minus_logL = self.min_target_from_fit(new_params)
-                
+            new_params_array = self.min_target_from_fit.params_dict2array(new_params)
+            minus_logL = self.min_target_from_fit(new_params_array)
+
             if self.bar is not None:
                 self.bar.update() # pragma: no cover
             
@@ -513,7 +513,7 @@ class Profiler():
             if pL <= pL_thres:
                 self.vprint(3, f"bracketing: {pL:.3f} <= {pL_thres:.3f} @ {p}")
                 break
-            elif hit_bound:
+            elif past_bound:
                 self.vprint(3, "bracket reached {['lower', 'upper'][idir]} bound: {pL:.3f} > {pL_thres:.3f} @ {p}")
                 pL = np.inf
                 break
@@ -536,7 +536,6 @@ class Profiler():
         --------
         find_bracket_point, find_MCI
         """
-        self.expand_bracket_strategy()
         a, a_pL = self.find_bracket_point(direction=-1)
         b, b_pL = self.find_bracket_point(direction= 1)
         return (a, a_pL), (b, b_pL)
@@ -564,7 +563,7 @@ class Profiler():
         """
         # Input processing
         L = self.fit.parameters[self.cur_param].linearization
-        pe = self.point_estimate[self.cur_param]
+        pe = self.point_estimate['params'][self.cur_param]
 
         # Sometimes the (profile) likelihood is discontinuous right at the
         # (prospective) CI bound, in which case we will not converge to the
@@ -587,7 +586,7 @@ class Profiler():
 
         # Figure out which side of the bracket to move inwards
         i_move = 0 if a_fun*c_fun > 0 else 1
-        assert [a_fun, b_fun][1-i_update]*c_fun <= 0
+        assert [a_fun, b_fun][1-i_move]*c_fun <= 0
         
         # Update the bracket
         bracket[i_move] = c
@@ -718,3 +717,4 @@ class Profiler():
             self.bar = None
             
         self.vprint(2, "Done\n")
+        return mcis

@@ -64,7 +64,7 @@ class Linearize: # this is just a namespace
 
     class Bounded(ABC):
         def __init__(self, n_steps=10):
-            super().__init__(self)
+            super().__init__()
             self.n_steps = n_steps
 
         def from_linear(self, pe, n):
@@ -77,7 +77,7 @@ class Linearize: # this is just a namespace
 
     class Multiplicative(ABC):
         def __init__(self, factor=2):
-            super().__init__(self)
+            super().__init__()
             self.log_factor = np.log(factor)
 
         def from_linear(self, pe, n):
@@ -87,13 +87,13 @@ class Linearize: # this is just a namespace
             return np.log(x/pe)/log_factor
 
     class Exponential(ABC):
-        def __init__(self, step=1):
-            super().__init__(self)
-            self.log_step = np.log(step)
+        def __init__(self, step=1, base=2):
+            super().__init__()
+            self.step = step
+            self.log_base = np.log(base)
 
         def from_linear(self, pe, n):
-            return pe + np.sign(n)*np.exp(log_step*n)
+            return pe + np.sign(n)*self.step*(np.exp(self.log_base*np.abs(n)) - 1)
 
         def to_linear(self, pe, x):
-            sign = np.sign(x-pe)
-            return sign*np.log(np.abs(x-pe))/log_step
+            return np.sign(x-pe) * np.log(1 + np.abs(x-pe)/self.step)/self.log_base
