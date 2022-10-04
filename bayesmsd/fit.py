@@ -431,7 +431,7 @@ msdfun(dt,
 
         return fix_values, resolution_order, unfixed
 
-    def independent_fit_parameters(self, fix_values=None):
+    def independent_parameters(self, fix_values=None):
         """
         Return the names of the independent (not fixed) parameters
 

@@ -149,14 +149,14 @@ class Profiler():
         self.fit = fit
         self.min_target_from_fit = self.fit.MinTarget(self.fit)
 
-        self.ress = {name : [] for name in self.fit.independent_fit_parameters()}
+        self.ress = {name : [] for name in self.fit.independent_parameters()}
         self.point_estimate = None
         
         self.conf = conf
         self.conf_tol = conf_tol
 
         self.cur_param = None
-        if profiling and len(self.fit.independent_fit_parameters()) == 1:
+        if profiling and len(self.fit.independent_parameters()) == 1:
             self.vprint(1, "Cannot profile with a single independent fit parameter; setting profiling = False")
             self.profiling = False
         else:
@@ -187,7 +187,7 @@ class Profiler():
         if self.profiling:
             dof = 1
         else:
-            dof = len(self.fit.independent_fit_parameters())
+            dof = len(self.fit.independent_parameters())
             
         self.LR_interval = [stats.chi2(dof).ppf(self.conf-self.conf_tol)/2,
                             stats.chi2(dof).ppf(self.conf+self.conf_tol)/2]
@@ -222,7 +222,7 @@ class Profiler():
                     # sense to keep the old results, since the parameters are different
                     if not self.profiling:
                         fit_kw['init_from'] = self.best_estimate
-                        self.ress = {name : [] for name in self.fit.independent_fit_parameters()}
+                        self.ress = {name : [] for name in self.fit.independent_parameters()}
                         self.point_estimate = None
 
                     # Get a new point estimate, starting from the better one we found
@@ -687,7 +687,7 @@ class Profiler():
                                                                                 ))
         
         if parameters is all:
-            parameters = self.fit.independent_fit_parameters()
+            parameters = self.fit.independent_parameters()
         elif isinstance(parameters, str):
             parameters = [parameters]
                

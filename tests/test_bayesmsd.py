@@ -200,7 +200,7 @@ class TestRouseLoci(myTestCase):
             self.assertGreater(res['params'][name], 0)
             self.assertLess(res['params'][name], 2)
 
-        self.assertSetEqual(set(fit.independent_fit_parameters()),
+        self.assertSetEqual(set(fit.independent_parameters()),
                             {'x1', 'x2', 'y0', 'y1', 'y2', 'y3'})
 
         # Test refining a spline fit
@@ -208,7 +208,7 @@ class TestRouseLoci(myTestCase):
                                     previous_spline_fit_and_result = (fit, res),
                                     )
 
-        self.assertSetEqual(set(fit2.independent_fit_parameters()),
+        self.assertSetEqual(set(fit2.independent_parameters()),
                             {      'x1', 'x2', 'x3', 'x4',
                              'y0', 'y1', 'y2', 'y3', 'y4', 'y5',
                             })
@@ -226,7 +226,7 @@ class TestRouseLoci(myTestCase):
         res = fit.run(full_output=True, optimization_steps=(dict(method='Nelder-Mead', options={'fatol' : 0.1, 'xatol' : 0.01}),))[-1][0]
 
         self.assertEqual(res['params']['log(σ²) (dim 0)'], -np.inf)
-        self.assertSetEqual(set(fit.independent_fit_parameters()),
+        self.assertSetEqual(set(fit.independent_parameters()),
                             {'log(Γ) (dim 0)', 'log(J) (dim 0)'})
 
     @patch('builtins.print')
