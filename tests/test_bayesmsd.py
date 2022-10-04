@@ -154,6 +154,28 @@ class TestDiffusive(myTestCase):
         fit = bayesmsd.lib.NPXFit(self.data, ss_order=1, n=1, motion_blur_f=0.5)
         res = fit.run()
 
+    def test_expand_fix_values(self):
+        fit = bayesmsd.lib.NPXFit(self.data, ss_order=1, n=1)
+
+        fit.parameters['log(Γ) (dim 2)'].fix_to = 'log(Γ) (dim 0)'
+        fit.parameters['log(Γ) (dim 1)'].fix_to = 'log(Γ) (dim 2)'
+        fit.parameters['log(σ²) (dim 0)'].fix_to = 0
+        fit.parameters['α (dim 2)'].fix_to = lambda p : 0.5
+
+        fv, res, unfixed = fit.expand_fix_values()
+        self.assertListEqual(res[-2:], ['log(Γ) (dim 1)', 'α (dim 2)'])
+
+        # Attempt circular fixing
+        fit.verbosity = 0 # mute error message
+        fit.parameters['log(Γ) (dim 2)'].fix_to = 'log(Γ) (dim 1)'
+        with self.assertRaises(RuntimeError):
+            fv, res, unfixed = fit.expand_fix_values()
+
+        fit.parameters['log(Γ) (dim 1)'].fix_to = 'log(Γ) (dim 0)'
+        fit.parameters['log(Γ) (dim 2)'].fix_to = 'α (dim 2)'
+        with self.assertRaises(RuntimeError):
+            fv, res, unfixed = fit.expand_fix_values()
+
 class TestRouseLoci(myTestCase):
     def setUp(self):
         model = rouse.Model(10)

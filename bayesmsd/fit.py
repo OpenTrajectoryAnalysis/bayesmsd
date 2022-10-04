@@ -371,21 +371,65 @@ msdfun(dt,
         Fit.fix_values, get_value_fixer
         """
         # Merge input and fit-internal fix_values (input takes precedence)
+        # Note: using the dict here ensures uniqueness (only one fix per
+        # parameter)
         fix_values_in = fix_values if fix_values is not None else {}
         fix_values = {name : param.fix_to
                       for name, param in self.parameters.items()
                       if param.fix_to is not None}
         fix_values.update(fix_values_in)
 
-        # Resolve constants (parameter names or numerical)
+        # Keep track of which parameter is resolved how, such that we can give
+        # a good resolution order later
+        unfixed = [name for name in self.parameters if name not in fix_values]
+        to_constant = [] # just names
+        to_other = []    # (name, resolves_to)
+        to_callable = [] # just names
+
+        # Convert constants (name or numerical) to callables
         for name, fix_to in fix_values.items():
-            if not callable(fix_values[name]):
+            if callable(fix_to):
+                to_callable.append(name)
+            else:
                 if fix_to in self.parameters:
+                    to_other.append((name, fix_to))
                     fix_values[name] = lambda x, name=fix_to : x[name]
                 else:
+                    to_constant.append(name)
                     fix_values[name] = lambda x, val=fix_to : val
 
-        return fix_values
+        # Determine resolution order:
+        # - constants go first, in undetermined order
+        # - then resolve identifications recursively
+        # - finally the general callables
+        resolution_order = unfixed + to_constant
+        while len(to_other) > 0:
+            cache_len = len(to_other)
+            i = 0
+            while i < len(to_other):
+                if to_other[i][1] in resolution_order:
+                    resolution_order.append(to_other.pop(i)[0])
+                else:
+                    i += 1
+
+            if len(to_other) == cache_len:
+                # Could not insert any more of the identifications, so there
+                # must be a cycle in the remaining fixes (or something depends
+                # on a parameter that's fixed by callable)
+                self.vprint(1, "Left-overs from resolution order determination:\n"
+                              f"resolution_order = {resolution_order}\n"
+                              f"        to_other = {to_other}\n"
+                              f"     to_callable = {to_callable}\n")
+                raise RuntimeError("Could not determine resolution order of parameter fixes.")
+
+        resolution_order += to_callable
+
+        # Remove unfixed parameters
+        assert len(resolution_order) == len(self.parameters)
+        assert resolution_order[:len(unfixed)] == unfixed
+        resolution_order = resolution_order[len(unfixed):]
+
+        return fix_values, resolution_order, unfixed
 
     def independent_fit_parameters(self, fix_values=None):
         """
@@ -411,15 +455,18 @@ msdfun(dt,
         def __init__(self, fit, fix_values=None, offset=0):
             self.fit = fit
 
-            self.fix_values = self.fit.expand_fix_values(fix_values)
-            self.param_names = self.fit.independent_fit_parameters(self.fix_values)
+            fv = self.fit.expand_fix_values(fix_values)
+            self.fix_values                  = fv[0]
+            self.fix_values_resolution_order = fv[1]
+            self.param_names                 = fv[2]
 
             self.offset = offset
 
         def params_array2dict(self, params_array):
             params = dict(zip(self.param_names, params_array))
-            params.update({name : fixfun(params)
-                           for name, fixfun in self.fix_values.items()})
+            for name in self.fix_values_resolution_order:
+                params[name] = self.fix_values[name](params)
+
             return params
 
         def params_dict2array(self, params):
