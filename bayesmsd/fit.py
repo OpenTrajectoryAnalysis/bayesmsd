@@ -331,12 +331,24 @@ msdfun(dt,
         Returns
         -------
         float
+            anything < 0 indicates infeasibility, so don't even evaluate the
+            likelihood
         """
         x = np.inf
+
+        # Check parameter bounds
+        # We can just detect infeasibility; if a soft bound is needed, implement
+        # a constraint
+        for name, P in self.parameters.items():
+            if (   P.bounds[0] > params[name]
+                or P.bounds[1] < params[name]):
+                return -1 # infeasible
+
+        # Check inequality constraints
         for constraint in self.constraints:
             x = min(constraint(params), x)
             if x <= 0:
-                return -1 # unfeasible
+                return -1 # infeasible
 
         if x >= 1:
             return 0

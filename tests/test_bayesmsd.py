@@ -154,6 +154,23 @@ class TestDiffusive(myTestCase):
         fit = bayesmsd.lib.NPXFit(self.data, ss_order=1, n=1, motion_blur_f=0.5)
         res = fit.run()
 
+    def test_penalty(self):
+        fit = bayesmsd.lib.NPXFit(self.data, ss_order=1)
+        params = {
+            'log(σ²) (dim 0)' : 0,
+            'log(σ²) (dim 1)' : 0,
+            'log(σ²) (dim 2)' : 0,
+            'log(Γ) (dim 0)'  : 0,
+            'log(Γ) (dim 1)'  : 0,
+            'log(Γ) (dim 2)'  : 0,
+            'α (dim 0)'       : 1,
+            'α (dim 1)'       : 1,
+            'α (dim 2)'       : 1,
+        }
+
+        params['α (dim 2)'] = 3 # out of bounds
+        self.assertLess(fit._penalty(params), 0)
+
     def test_expand_fix_values(self):
         fit = bayesmsd.lib.NPXFit(self.data, ss_order=1, n=1)
 
