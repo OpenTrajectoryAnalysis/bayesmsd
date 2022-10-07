@@ -294,3 +294,38 @@ def generate(msd_def, T, n=1):
         return TaggedSet((Trajectory(np.cumsum(mysteps + ms[None, :], axis=0)) for mysteps in steps), hasTags=False)
     else: # pragma: no cover
         raise ValueError(f"Invalid steady state order: {ss_order}")
+
+def generate_dataset_like(data, msd_def):
+    """
+    Create a dataset like the reference, but from given MSD.
+
+    The returned TaggedSet contains trajectories that match the input dataset
+    in number, length, and missing frames, but are sampled from the MSD defined
+    by `!msd_def` (which is usually a fit to these data).
+
+    Parameters
+    ----------
+    data : TaggedSet of Trajectories
+        the input dataset. Note that the actual data will not be used, just
+        meta info like number and length of trajectories, and missing frames
+    msd_def : (fit, res) or (msd_fun, ss_order, d)
+        the definition of the MSD to sample from; see `generate`.
+
+    Returns
+    -------
+    TaggedSet of Trajectories
+
+    Notes
+    -----
+    This function assumes N = 1 (single particle) for all trajectories; d
+    (number of spatial dimensions) should be consistent across the dataset.
+    """
+    T = max(map(len, data))
+    new_data = generate(msd_def, T, n=len(data))
+    for (traj, tags), (new_traj, new_tags) in zip(data(giveTags=True),
+                                                  new_data(giveTags=True)):
+        new_traj.data = new_traj.data[:, :len(traj)]
+        new_traj.data[:, np.any(np.isnan(traj.data), axis=(0, 2)), :] = np.nan
+        new_tags |= tags
+
+    return new_data

@@ -489,6 +489,25 @@ class TestRandomStuff(myTestCase):
 
         data_sample = bayesmsd.gp.generate((fit.MSD(params), 1, 1), 10, n=2)
 
+    def test_generate_ds_like(self):
+        data = nl.TaggedSet([(nl.Trajectory([1, 2, np.nan, 4]), {'foo'}),
+                             (nl.Trajectory([np.nan, 2, 3, 4]), {'bar', 'baz'})])
+
+        @bayesmsd.deco.MSDfun
+        def msd(dt):
+            return dt
+
+        data_new = bayesmsd.gp.generate_dataset_like(data, (msd, 1, 1))
+
+        self.assertEqual(data._tags[0], data_new._tags[0])
+        self.assertIsNot(data._tags[0], data_new._tags[0])
+        data_new._tags[0].add('moo')
+        self.assertNotEqual(data._tags[0], data_new._tags[0])
+
+        self.assert_array_equal(np.isnan(data_new[1][:][:, 0]),
+                                np.array([True, False, False, False]),
+                                )
+
 class TestNewImplementation(myTestCase):
     def test_MSDfun(self):
         @bayesmsd.deco.MSDfun
