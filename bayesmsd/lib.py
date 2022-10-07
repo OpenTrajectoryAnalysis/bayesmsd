@@ -627,7 +627,7 @@ class TwoLocusRouseFit(Fit):
     data. In a standard setting this makes sense only for the localization
     error, so by default we fix Γ and J to be the same for all dimensions.
     """
-    def __init__(self, data, k=1,
+    def __init__(self, data,
                  motion_blur_f=0,
                 ):
         super().__init__(data)
