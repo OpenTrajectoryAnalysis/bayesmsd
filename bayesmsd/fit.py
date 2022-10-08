@@ -143,7 +143,7 @@ class Fit(metaclass=ABCMeta):
         self.T = max(map(len, self.data))
 
         # Fit properties
-        self.ss_order = 0
+        self.ss_order = None
         self.parameters = {} # should be dict of parameters.Parameter instances
         # `params` arguments will then be dicts as well
 
