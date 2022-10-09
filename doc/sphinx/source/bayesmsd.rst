@@ -1,10 +1,5 @@
-bayesmsd
-========
-
-.. contents::
-   :local:
-
-.. automodule:: bayesmsd
+API reference
+=============
 
 
 bayesmsd.deco
@@ -54,5 +49,8 @@ bayesmsd.profiler
    :members:
    :undoc-members:
    :show-inheritance:
+
+.. contents::
+   :local:
 
 
