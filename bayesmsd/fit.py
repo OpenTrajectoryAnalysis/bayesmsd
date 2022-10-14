@@ -15,7 +15,7 @@ from scipy import optimize
 
 from noctiluca import make_TaggedSet
 
-from . import gp
+from .gp import GP, msd2C_fun
 from .deco import method_verbosity_patch
 
 class Fit(metaclass=ABCMeta):
@@ -159,7 +159,7 @@ class Fit(metaclass=ABCMeta):
         Definition of MSD in terms of parameters
 
         This is the core of the fit definition. It should give a list of tuples
-        as required by `gp.ds_logL <bayesmsd.gp.ds_logL>`
+        as required by `GP.ds_logL <bayesmsd.gp.GP.ds_logL>`
 
         Parameters
         ----------
@@ -175,7 +175,7 @@ class Fit(metaclass=ABCMeta):
 
         See also
         --------
-        gp.ds_logL <bayesmsd.gp.ds_logL>, MSDfun <bayesmsd.deco.MSDfun>,
+        GP.ds_logL <bayesmsd.gp.GP.ds_logL>, MSDfun <bayesmsd.deco.MSDfun>,
         imaging <bayesmsd.deco.imaging>
         """
         raise NotImplementedError # pragma: no cover
@@ -261,7 +261,7 @@ class Fit(metaclass=ABCMeta):
         done = []
         for msd, _ in self.params2msdm(params):
             if msd not in done:
-                min_ev = np.min(np.linalg.eigvalsh(gp.msd2C_fun(msd, np.arange(self.T), self.ss_order)))
+                min_ev = np.min(np.linalg.eigvalsh(msd2C_fun(msd, np.arange(self.T), self.ss_order)))
                 scores.append(min_ev / min_ev_okay)
                 done.append(msd)
 
@@ -556,7 +556,7 @@ msdfun(dt,
             if penalty < 0: # infeasible
                 return self.fit.max_penalty
             else:
-                return -gp.ds_logL(self.fit.data,
+                return -GP.ds_logL(self.fit.data,
                                    self.fit.ss_order,
                                    self.fit.params2msdm(params),
                                   ) \
@@ -679,7 +679,7 @@ msdfun(dt,
                     
                 try:
                     fitres = optimize.minimize(min_target, p0, **kwargs)
-                except gp.BadCovarianceError as err: # pragma: no cover
+                except GP.BadCovarianceError as err: # pragma: no cover
                     self.vprint(2, "BadCovarianceError:", err)
                     fitres = lambda: None # hack: lambdas allow free assignment of attributes
                     fitres.success = False
