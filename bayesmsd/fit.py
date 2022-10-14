@@ -20,7 +20,7 @@ from .deco import method_verbosity_patch
 
 class Fit(metaclass=ABCMeta):
     """
-    Abstract base class for MSD fits. Backbone of bayesmsd.
+    Abstract base class for MSD fits; the backbone of bayesmsd.
 
     Subclass this to implement fitting of a specific functional form of the
     MSD. See also the existing library of fits in `bayesmsd.lib`.
@@ -55,16 +55,10 @@ class Fit(metaclass=ABCMeta):
     ss_order : {0, 1}
         steady state order. Often this will be a fixed constant for a
         particular `Fit` subclass.
-    bounds : list of (lb, ub)
-        bound for each of the parameters in the fit. This is everything the
-        class "knows" about your choice of parameters internally. The length of
-        this list is also used internally to count number of parameters, so it
-        is important that every parameter has bounds. Use ``np.inf`` and
-        ``-np.inf`` for unbounded parameters.
-    fix_values : list of (i, fix_to)
-        allows to fix some parameter values to constant or values of other
-        parameters, e.g. to allow for different behavior in different
-        dimensions, but fixing it to be equal by default. See Notes section.
+    parameters : dict
+        the parameters for this fit. Each entry should carry a sensible name
+        and be an instance of `bayesmsd.Parameter
+        <bayesmsd.parameters.Parameter>`.
     constraints : list of constraint functions
         allows to specify constraints on the parameters that will be
         implemented as smooth penalty on the likelihood. Can also take care of
@@ -86,26 +80,19 @@ class Fit(metaclass=ABCMeta):
 
     Notes
     -----
-    The `!fix_values` mechanism allows to keep some parameters fixed, or
-    express them as function of others. ``Fit.fix_values`` is a list of tuples
-    ``(i, fix_to)``, where ``i`` is the index of the parameter you want to fix,
-    c.f. `!bounds`. ``fix_to`` is either just a constant value, or a function
-    ``fix_to(params) --> float``, where ``params`` are the current parameter
-    values. Note that in this function you should not rely on any parameters
-    that are themselves to be fixed. (It would get impossible to resolve all
-    the dependencies).
-
     `!constraints` are functions with signature ``constraint(params) -->
     float``. The output is interpreted as follows:
-    - x <= 0 : infeasible; maximum penalization
-    - 0 <= x <= 1 : smooth penalization: ``penalty = exp(1/tan(pi*x))``
-    - 1 <= x : feasible; no penalization
+
+     - x <= 0 : infeasible; maximum penalization
+     - 0 <= x <= 1 : smooth penalization: ``penalty = exp(cot(pi*x))``
+     - 1 <= x : feasible; no penalization
+
     Thus, if e.g. some some function ``fun`` of the parameters should be
     constrained to be positive, you would use ``fun(params)/eps`` as the
     constraint, with ``eps`` some small value setting the tolerance region. If
     there are multiple constraints, always the strongest one is used. For
-    infeasible parameters, the likelihood function is not evaluated, but the
-    "likelihood" is just set to ``-Fit.max_penalty``.
+    infeasible parameters, the likelihood function is not evaluated; instead
+    the "likelihood" is just set to ``-Fit.max_penalty``.
 
     Note that there is a default constraint checking positivity of the
     covariance matrix. If your functional form of the MSD is guaranteed to
@@ -125,16 +112,17 @@ class Fit(metaclass=ABCMeta):
     (L-BFGS-B). The latter uses the stopping criterion ``f^k -
     f^{k+1}/max{|f^k|,|f^{k+1}|,1} <= ftol``, which is inappropriate for
     log-likelihoods (which should be optimized to fixed accuracy of O(0.1)
-    independent of the absolute value, which might be very large). We therefore
-    use Nelder-Mead by default, which does not depend on derivatives and thus
-    also has an absolute stopping criterion.
+    independent of the absolute value, which in turn might be very large). We
+    therefore use Nelder-Mead by default, which does not depend on derivatives
+    and thus also has an absolute stopping criterion.
 
-    If this function runs close to a maximum, e.g. in `Profiler` or when using
-    successive optimization steps, we can fix the problem with gradient-based
-    optimization by removing the large absolute value offset from the
-    log-likelihood. This functionality is also exposed to the end user, who can
-    overwrite the ``initial_offset`` method to give a non-zero offset together
-    with the initial values provided via `initial_params`.
+    If this function runs close to a maximum, e.g. in `Profiler
+    <bayesmsd.profiler.Profiler>` or when using successive optimization steps,
+    we can fix the problem with gradient-based optimization by removing the
+    large absolute value offset from the log-likelihood. This functionality is
+    also exposed to the end user, who can overwrite the ``initial_offset``
+    method to give a non-zero offset together with the initial values provided
+    via `initial_params`.
     """
     def __init__(self, data):
         self.data = make_TaggedSet(data)
@@ -171,7 +159,7 @@ class Fit(metaclass=ABCMeta):
         Definition of MSD in terms of parameters
 
         This is the core of the fit definition. It should give a list of tuples
-        as required by `gp.ds_logL`
+        as required by `gp.ds_logL <bayesmsd.gp.ds_logL>`
 
         Parameters
         ----------
@@ -181,12 +169,14 @@ class Fit(metaclass=ABCMeta):
         Returns
         -------
         list of tuples (msd, m)
-            for the definition of `!msd`, use of the `MSDfun` decorator is
-            recommended.
+            for the definition of `!msd`, use of the `MSDfun
+            <bayesmsd.deco.MSDfun>` decorator (and potentially also `imaging
+            <bayesmsd.deco.imaging>`) is recommended.
 
         See also
         --------
-        gp.ds_logL, MSDfun, imaging
+        gp.ds_logL <bayesmsd.gp.ds_logL>, MSDfun <bayesmsd.deco.MSDfun>,
+        imaging <bayesmsd.deco.imaging>
         """
         raise NotImplementedError # pragma: no cover
 
@@ -370,17 +360,27 @@ msdfun(dt,
         Parameters
         ----------
         fix_values : dict, optional
-            values to fix, beyond what's already in ``self.fix_values``
+            values to fix, beyond what's already in
+            ``self.parameters[...].fix_to``
 
         Returns
         -------
         fix_values : dict
-            same as input, plus internal ``self.fix_values`` and constants
-            resolved
+            same as input, plus internals, and constants resolved
 
-        See also
-        --------
-        Fit.fix_values, get_value_fixer
+        Notes
+        -----
+        Parameter resolution order:
+
+         + free parameters
+         + fixed to constant
+         + fixed to other parameter by name
+         + fixed to callable
+
+        So you cannot fix to another parameter that is itself fixed to a
+        callable. You can use ``parameter.fix_to = other_parameter.fix_to``
+        instead to just copy the function over instead of fixing by name. This
+        helps prevent undetectable cycles in the fixes.
         """
         # Merge input and fit-internal fix_values (input takes precedence)
         # Note: using the dict here ensures uniqueness (only one fix per
@@ -464,17 +464,51 @@ msdfun(dt,
         return [name for name in self.parameters if (name not in fix_values and self.parameters[name].fix_to is None)]
                 
     class MinTarget:
+        """
+        Helper class; acts as cost function for optimization.
+
+        Beyond acting as the actual cost function through implementation of the
+        ``()`` operator, this class also defines the conversion between
+        parameter dicts (where parameters are named and unordered) and
+        parameter arrays (which are used for optimization). Most of this is for
+        internal use.
+
+        Parameters
+        ----------
+        fit : Fit
+            the `Fit` object that this target is associated with.
+        fix_values : dict
+            any additional fixes for parameters, beyond what's already in
+            ``fit.parameters[...].fix_to``.
+        offset : float
+            the global offset to subtract; see Notes section of `Fit`.
+        """
         def __init__(self, fit, fix_values=None, offset=0):
             self.fit = fit
 
             fv = self.fit.expand_fix_values(fix_values)
             self.fix_values                  = fv[0]
             self.fix_values_resolution_order = fv[1]
-            self.param_names                 = fv[2]
+            self.param_names                 = fv[2] # this defines the order in params_array
 
             self.offset = offset
 
         def params_array2dict(self, params_array):
+            """
+            Convert a parameter array to dict
+
+            Parameters
+            ----------
+            params_array : np.ndarray
+
+            Returns
+            -------
+            dict
+
+            See also
+            --------
+            params_dict2array
+            """
             params = dict(zip(self.param_names, params_array))
             for name in self.fix_values_resolution_order:
                 params[name] = self.fix_values[name](params)
@@ -482,9 +516,40 @@ msdfun(dt,
             return params
 
         def params_dict2array(self, params):
+            """
+            Convert a parameter dict to array
+
+            Parameters
+            ----------
+            params_dict : dict
+
+            Returns
+            -------
+            np.ndarray
+
+            See also
+            --------
+            params_array2dict
+            """
             return np.array([params[name] for name in self.param_names])
 
         def __call__(self, params_array):
+            """
+            Actual minimzation target
+
+            This function evaluates penalty, prior, and likelihood for the
+            current parameters and returns the negative of their sum. If
+            ``penalty < 0``, instead of evaluating the likelihood, we just
+            return the maximum penalization.
+
+            Parameters
+            ----------
+            params_array : np.ndarray
+
+            Returns
+            -------
+            float
+            """
             params = self.params_array2dict(params_array)
 
             penalty = self.fit._penalty(params)
@@ -532,7 +597,7 @@ msdfun(dt,
             Set to ``True`` to return the output dict (c.f. Returns) and the
             full output from ``scipy.optimize.minimize`` for each optimization
             step. Otherwise (``full_output == False``, the default) only the
-            output dict from the ultimate run is returned.
+            output dict from the final run is returned.
         show_progress : bool
             display a `!tqdm` progress bar while fitting
         verbosity : {None, 0, 1, 2, 3}
@@ -562,7 +627,7 @@ msdfun(dt,
             except KeyError:
                 initial_offset = 0
 
-        # Set up the minimization target function
+        # Set up the minimization target
         # also allows us to convert initial_params to appropriate array
         min_target = Fit.MinTarget(self, fix_values, initial_offset)
 
@@ -616,7 +681,7 @@ msdfun(dt,
                     fitres = optimize.minimize(min_target, p0, **kwargs)
                 except gp.BadCovarianceError as err: # pragma: no cover
                     self.vprint(2, "BadCovarianceError:", err)
-                    fitres = lambda: None
+                    fitres = lambda: None # hack: lambdas allow free assignment of attributes
                     fitres.success = False
                 
                 if not fitres.success:

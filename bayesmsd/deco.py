@@ -7,16 +7,19 @@ implementing this common functionality. Specifically, these fall into two
 categories:
 
 + technical convenience, i.e. making sure that the argument is properly cast to
-  a numpy array and dealing with ``dt == 0`` (``msd[0] == 0`` should be true
-  for any MSD function for technical reasons, even if ``lim_{dt-->0} MSD(dt) !=
-  0``). This is taken care of by the `MSDfun` decorator.
-+ physical contributions to realistic MSD curves, i.e. localization error and
-  motion blur. These are implemented in the `imaging` decorator.
+  a numpy array and dealing with ``dt <= 0`` (i.e. ``MSD(0) == 0`` should be
+  true for any MSD function for technical reasons, even if ``lim_{dt-->0}
+  MSD(dt) != 0``). This is taken care of by the `MSDfun` decorator.
++ contributions to realistic MSD curves due to common imaging artifacts, i.e.
+  localization error and motion blur. These are implemented in the `imaging`
+  decorator.
 
 Taking both together, the definition for a simple powerlaw MSD function would
 take the following form:
 
->>> @bayesmsd.deco.MSDfun
+>>> G, alpha = ... # from input
+...
+... @bayesmsd.deco.MSDfun
 ... @bayesmsd.deco.imaging(noise2=..., f=..., alpha0=alpha)
 ... def powerlawMSD(dt, G=G, alpha=alpha):
 ...     return G*dt**alpha
@@ -28,6 +31,12 @@ the fractional exposure `!f` which is given experimentally and the early time
 curve---and then adds the (squared) localization error `!noise2`. Overall,
 there is thus just one additional free parameter, namely the localization
 error.
+
+Note how we pass ``G`` and ``alpha`` (which are defined in the surrounding
+namespace) to the function as default arguments. This gets the scoping correct,
+since default arguments are evaluated at definition time (as opposed to just
+using the externally defined variables, whose values might change between
+definition and execution of the function).
 
 See also
 --------
@@ -58,10 +67,9 @@ def MSDfun(fun):
     """
     Decorator for MSD functions
 
-    This is a decorator to use when implementing `params2msdm
-    <Fit.params2msdm>` in `Fit`. It takes over some of the generic polishing.
-    It assumes that the decorated function has the signature
-    ``function(np.array) --> np.array`` and
+    This is a decorator to use when implementing `Fit.params2msdm`. It takes
+    over some of the generic polishing: it assumes that the decorated function
+    has the signature ``function(np.array) --> np.array`` and
 
     - ensures that the argument is cast to an array if necessary (such that you
       can then also call ``msd(5)`` instead of ``msd(np.array([5]))``
@@ -109,10 +117,11 @@ def imaging(noise2=0, f=0, alpha0=1):
     """
     Add imaging artifacts (localization error & motion blur) to MSDs.
 
-    This decorator should be used when defining MSD functions, to add
-    artifacts due to the imaging process. These are a) localization error
-    and b) motion blur, caused by finite exposure times. Use this decorator
-    after `MSDfun`, like so:
+    This decorator should be used when defining MSD functions for SPT
+    experiments, to add artifacts due to the imaging process. These are a)
+    localization error and b) motion blur, caused by finite exposure times. Use
+    this decorator after `MSDfun`, like so:
+
     >>> @bayesmsd.deco.MSDfun
     ... @bayesmsd.deco.imaging(...)
     ... def msd(dt):
