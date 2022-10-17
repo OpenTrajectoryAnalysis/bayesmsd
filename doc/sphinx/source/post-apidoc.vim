@@ -45,13 +45,15 @@ for fname in glob("bayesmsd*.rst", 0, 1)
 endfor
 
 edit! bayesmsd.rst
-call search("toctree")
-call append(line('.')-1, [".. contents::",
-			 \"   :local:",
-			 \"",
-			 \])
 call setline(1, "API reference") " replace the title; we know what the module is called
 call setline(2, "=============")
+call append(3, [".. contents::",
+	       \"   :local:",
+	       \"",
+	       \".. automodule:: bayesmsd",
+	       \"   :members:",
+	       \"",
+	       \])
 write!
 
 quit

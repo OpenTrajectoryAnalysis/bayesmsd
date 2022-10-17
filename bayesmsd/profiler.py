@@ -1,11 +1,12 @@
 """
 Implementation of the `Profiler` class
 
-This is used to "explore the posterior" after running a `Fit <bayesmsd.Fit>`,
-specifically to find the credible intervals.
+This is used to "explore the posterior" after running a `Fit
+<bayesmsd.fit.Fit>`, specifically to find the credible intervals.
 
 Example
 -------
+
 >>> fit = <some bayesmsd.Fit subclass, c.f. bayesmsd.lib>
 ... profiler = bayesmsd.Profiler(fit)
 ... mci = profiler.find_MCI() # mci = max posterior estimate & credible
@@ -27,9 +28,9 @@ class Profiler():
     """
     Exploration of the posterior after finding the point estimate
 
-    This class provides a top layer on top of `Fit`, enabling more
-    comprehensive exploration of the posterior after finding the (MAP) point
-    estimate. Generally, it operates in two modes:
+    This class provides a layer on top of `Fit`, enabling more comprehensive
+    exploration of the posterior after finding the (MAP) point estimate.
+    Generally, it operates in two modes:
 
     - conditional posterior: wiggle each individual parameter, keeping all
       others fixed to the point estimate values, thus calculating conditional
@@ -42,12 +43,11 @@ class Profiler():
 
     From a Bayesian point of view, beyond conditional and profile posterior,
     the actually interesting quantity is of course the marginal posterior. This
-    is best obtained by sampling the posterior by MCMC (see module description
-    for an example implementation of such a sampler). Still, conditional or
-    profile posterior often can give a useful overview over the shape of the
-    posterior. The conditional posterior is also great for setting MCMC step
-    sizes. Profile posteriors are of course significantly more expensive than
-    conditionals.
+    is best obtained by sampling the posterior by MCMC (see Examples &
+    Tutorials). Still, conditional or profile posterior often give a useful
+    overview over the shape of the posterior. The conditional posterior is also
+    great for setting MCMC step sizes. Profile posteriors are of course
+    significantly more expensive than conditionals.
 
     At the end of the day, this class moves along either profile or conditional
     posterior until it drops below a given cutoff, and then gives the lower
@@ -56,17 +56,18 @@ class Profiler():
     "confidence level" 1-α.
 
     We follow a two-step procedure to find the lower and upper bounds: first,
-    we move out from the point estimate with a fixed step size (additively or
-    multiplicatively) until the posterior drops below the cutoff. Within the
-    thus defined bracket, we then find the actual bound to the desired accuracy
-    by bisection. If the first step fails (i.e. the posterior does not drop
-    below the cutoff far from the point estimate) the corresponding parameter
-    direction is unidentifiable and the bound will be set to infinity
+    we move out from the point estimate with a fixed step size (in the space
+    defined by `!Parameter.linearization`) until the posterior drops below the
+    cutoff. Within the thus defined bracket, we then find the actual bound to
+    the desired accuracy by bisection. If the first step fails (i.e. the
+    posterior does not drop below the cutoff far from the point estimate) the
+    corresponding parameter direction is unidentifiable and the credible
+    interval edge will be set to infinity.
     
     Note that this class will also take care of the initial point estimate, if
     necessary.
 
-    The main point of entry for the user is the `find_MCI` method, that
+    The main point of entry for the user is the `find_MCI` method, which
     performs the sweeps described above. Further, `run_fit` might be useful if
     you just need the point estimate.
 
@@ -97,9 +98,9 @@ class Profiler():
     ----------
     fit : Fit
         see Parameters
-    min_target_from_fit : callable
+    min_target_from_fit : Fit.MinTarget
         the minimization target of ``self.fit``
-    ress : list
+    ress : dict
         storage of all evaluated parameter points. Each entry corresponds to a
         parameter dimension and contains a list of dicts that were obtained
         while sweeping that parameter. The individual entries are dicts like
@@ -126,7 +127,8 @@ class Profiler():
         see Parameters
     restart_on_better_point_estimate : bool
         whether to restart upon finding a better point estimate. Might make
-        sense to disable if your posterior is rugged
+        sense to disable if your posterior is rugged, to avoid restarting all
+        the time.
     bar : tqdm progress bar
         the progress bar showing successive fit evaluations
 

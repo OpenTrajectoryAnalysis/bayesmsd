@@ -4,8 +4,10 @@ Bayesian MSD fitting
 Any *valid* MSD function MSD(Δt) defines a stationary Gaussian process with the
 appropriate correlation structure. Therefore, instead of fitting the graph of
 "empirically" calculated MSDs, we can perform Bayesian inference of parametric
-MSD curves, using the Gaussian process likelihood function. Specifically, we
-discriminate two cases, depending on what exactly is stationary:
+MSD curves, using the likelihood function defined through these Gaussian
+processes.
+
+We discriminate two cases, depending on what exactly is stationary:
 
  + the trajectories themselves might be sampled from a stationary process (e.g.
    distance of two points on a polymer). In terms of the MSD, the decisive
@@ -31,8 +33,8 @@ discriminate two cases, depending on what exactly is stationary:
 
    We call this case a steady state of order 0.
  + in many cases (e.g. sampling a diffusing particle's position) the
-   trajectories itself will not be stationary, but the increment process is. In
-   this case the Gaussian process of interest is the one generating the
+   trajectories themselves will not be stationary, but the increment process
+   is. In this case the Gaussian process of interest is the one generating the
    increments of the trajectory, whose autocorrelation is the second derivative
    of the MSD:
 
@@ -58,73 +60,16 @@ process, which lets us assign a likelihood to the generating MSD. Via this
 construction, we can perform rigorous Bayesian analysis, cast in the familiar
 language of MSDs.
 
-This module provides a base class for performing such inferences / fits, namely
-`Fit`. We also provide a few example implementations of fitting schemes in the
-`lib` submodule. Finally, the `Profiler` allows to explore the posterior once a
-point estimate has been found, by tracing out either conditional posterior or
-profile posterior curves in each parameter direction. Note that you can also
-just sample the posterior by MCMC.
-
-Examples
---------
-TODO: once `!lib` is implemented, add some examples
-
-An example implementation of an MSD sampler for sampling the posterior, given
-data from a `Profiler` instance.
-TODO: test this
-
->>> import noctiluca as nl
-... import numpy as np
-... from scipy import stats
-...
-... class PosteriorSampler(nl.util.mcmc.Sampler):
-...     def __init__(self, profiler, mci=None, stepsize=0.1):
-...         \"\"\"
-...         `mci` is the output of a previous run of the profiler (if there was
-...         one). This is used to set the stepsize of the MCMC according to the
-...         guesses on the posterior shape from those results.
-...         \"\"\"
-...         self.profiler = profiler
-... 
-...         fix_values = self.profiler.fit.fix_values
-...         self.min_target_from_fit = self.profiler.fit.get_min_target(fix_values=fix_values)
-... 
-...         # Figure out, which parameters are actually independent
-...         ifix = [i for i, _ in fix_values]
-...         i_independent = np.array([i for i in range(len(self.profiler.fit.bounds)) if i not in ifix])
-... 
-...         # Set stepsizes (if not given by mci)
-...         self.stepsizes = np.array(len(i_independent)*[stepsize])
-...         if mci is not None:
-...             for iparam in range(len(mci)):
-...                 if not np.any(np.isnan(mci[iparam])) and iparam in i_independent:
-...                     m, *ci = mci[iparam]
-...                     step = np.min(np.abs(ci - m))
-...                     self.stepsizes[i_independent == iparam] = step
-... 
-...     def get_initial_values(self):
-...         p0 = self.profiler.point_estimate['params'].copy()
-...         ifix = np.array([i for i, _ in self.profiler.fit.fix_values])
-...         p0[ifix] = np.nan
-...         return p0[~np.isnan(p0)]
-... 
-...     # Implement MCMC interface
-...     def logL(self, params):
-...         return -self.min_target_from_fit(params)
-... 
-...     def propose_update(self, current_params):
-...         i_update = np.random.choice(len(current_params))
-...         new_params = current_params.copy()
-...         step_dist = stats.norm(scale=self.stepsizes[i_update])
-...         step = step_dist.rvs()
-...         new_params[i_update] += step
-... 
-...         return new_params, 1, 1 # don't have to care about fwd/bwd probabilities, bc Gaussian is symmetric
-...         # return new_params, step_dist.logpdf(step), step_dist.logpdf(-step) # "more correct"
+This package provides a base class for performing such inferences / fits,
+namely `Fit`. We also provide a few example implementations of specific fitting
+schemes in the `lib` submodule. Finally, the `Profiler` allows to explore the
+posterior once a point estimate has been found, by tracing out either
+conditional posterior or profile posterior curves in each parameter direction.
+Note that you can also just sample the posterior by MCMC.
 
 See also
 --------
-noctiluca.util.mcmc, Fit, Profiler
+Fit, Profiler
 """
 from . import deco
 from . import gp

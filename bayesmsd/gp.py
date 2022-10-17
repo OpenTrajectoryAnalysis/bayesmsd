@@ -120,7 +120,7 @@ class GP: # just a namespace
 
         # Since we need logdet anyways, this is a check that we can do for free
         if s <= 0: # pragma: no cover
-            raise BadCovarianceError("Covariance matrix has negative determinant: slogdet = ({}, {})".format(s, logdet))
+            raise GP.BadCovarianceError("Covariance matrix has negative determinant: slogdet = ({}, {})".format(s, logdet))
             
         try:
             xCx = x @ linalg.solve(C, x, assume_a='pos')
@@ -130,7 +130,7 @@ class GP: # just a namespace
             #     prevented by `Fit` in the first place
             vprint(3, f"Problem when inverting covariance; slogdet = ({s}, {logdet})")
             vprint(3, type(err), err)
-            raise BadCovarianceError("Inverting covariance did not work")
+            raise GP.BadCovarianceError("Inverting covariance did not work")
 
         return -0.5*(xCx + logdet) - len(C)*GP.LOG_SQRT_2_PI
 

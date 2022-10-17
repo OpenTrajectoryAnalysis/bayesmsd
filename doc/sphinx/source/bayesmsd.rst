@@ -1,6 +1,12 @@
 API reference
 =============
 
+.. contents::
+   :local:
+
+.. automodule:: bayesmsd
+   :members:
+
 
 bayesmsd.deco
 -------------
@@ -49,8 +55,5 @@ bayesmsd.profiler
    :members:
    :undoc-members:
    :show-inheritance:
-
-.. contents::
-   :local:
 
 

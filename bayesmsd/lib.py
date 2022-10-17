@@ -12,9 +12,7 @@ This module provides some commonly used MSD fits. Most notably:
 + Fitting cubic splines to your MSD curve via `SplineFit`. Doing this for
   varying number ``n`` of spline points allows to discern which features of an
   empirical MSD curve are significant and which are just noise. To compare fits
-  with different number of spline points, you can use AIC; the number of free
-  parameters for each fit can be obtained from `Fit.number_of_fit_parameters
-  <bayesmsd.fit.Fit.number_of_fit_parameters>`.
+  with different number of spline points, you can use AIC.
 """
 from copy import deepcopy
 
@@ -22,7 +20,7 @@ import numpy as np
 from scipy import optimize, interpolate
 
 import rouse
-from noctiluca.analysis.p2 import MSD
+from noctiluca.analysis import MSD
 
 from . import deco
 from .fit import Fit
@@ -41,12 +39,10 @@ class SplineFit(Fit):
     from ``t in [1, T]`` to ``x in [0, 1]``:
 
     - if ``ss_order == 0``, we need ``t = inf`` to be accessible. We therefore
-      choose the compactification ``x = 4/π*arctan(log(t/T))``, such that ``t =
-      inf`` corresponds to ``x = 2``.
+      choose the compactification ``x = 4/π*arctan(log(t)/log(T))``, such that
+      ``x(t=∞) = 2`` while ``x(t=T) = 1``.
     - if ``ss_order == 1``, we simply work in log-space, and normalize: ``x =
-      log(t)/log(T)``.
-
-    These compactifications are of course applied only internally.
+      log(t)/log(T)``. Thus ``x(t=T) = 1``.
 
     For the y-coordinate of the spline we apply a simple log-transform, ``y =
     log(MSD)``. We then use the boundary condition that the second derivative
@@ -67,6 +63,10 @@ class SplineFit(Fit):
         model selection task over spline knots. First entry should be the
         `Fit` object used, second one should be the resulting dict with keys
         ``'params'`` and ``'logL'``.
+    motion_blur_f : float in [0, 1]
+        fractional exposure time (i.e. exposure time as fraction of the time
+        between frames). The resulting motion blur will be taken into account
+        in the fit.
 
     Notes
     -----
@@ -81,11 +81,12 @@ class SplineFit(Fit):
     transformed coordinate system (``(dt, MSD) --> (x, y) == (compactify(dt),
     log(MSD))``). Since the total extent of the data along the time axis is
     fixed, we also fix the first and last x-coordinates, such that ultimately
-    the free parameters are ``(n-2)*[x] + n*[y]``.
+    the free parameters are ``x1`` through ``x(n-2)`` and ``y0`` through
+    ``y(n-1)``
 
     See also
     --------
-    Fit, msdfit
+    Fit, bayesmsd
     """
     def __init__(self, data, ss_order, n,
                  previous_spline_fit_and_result=None,
@@ -125,7 +126,7 @@ class SplineFit(Fit):
                                                  linearization=Linearize.Exponential(),
                                                  )
 
-        # x0 = x_first and x(n-1) = x_last are fixed
+        # x0 = x_first and x(n-1) = x_last are always fixed
         del self.parameters["x0"]
         del self.parameters[f"x{self.n-1}"]
 
@@ -143,7 +144,7 @@ class SplineFit(Fit):
 
         See also
         --------
-        SplineFit
+        SplineFit, decompactify_log
         """
         x = np.log(dt) / np.log(self.T)
         if self.ss_order == 0:
@@ -163,6 +164,10 @@ class SplineFit(Fit):
         -------
         log_dt : np.array
             the corresponding ``log(dt [frames])`` values
+
+        See also
+        --------
+        compactify
         """
         if self.ss_order == 0:
             x = np.tan(np.pi/4*x)
@@ -235,7 +240,7 @@ class SplineFit(Fit):
 
         See also
         --------
-        Fit.initial_params
+        Fit.initial_params <bayesmsd.fit.Fit.initial_params>
         """
         x_init = np.linspace(self.x_first, self.x_last, self.n)
 
@@ -287,8 +292,6 @@ class SplineFit(Fit):
         else:
             return -self.prev_fit[1]['logL']
         
-    # ensure proper ordering of the x positions
-    # if x's cross, the spline might diverge
     def constraint_dx(self, params):
         """
         Make sure the spline points are properly ordered in x
@@ -318,14 +321,6 @@ class SplineFit(Fit):
                     )
         return np.min(np.diff(x))/min_step
     
-    # this should (!) be taken care of by the Cpositive constraint
-#     def constraint_dy(self, params):
-#         # Ensure monotonicity in the MSD. This makes sense intuitively, but is it technically a condition?
-#         min_step = 1e-7
-#         y = params[(self.n-2):]
-#         return np.min(np.diff(y))/min_step
-    
-    # make sure that the MSD stays numerically finite
     def constraint_logmsd(self, params):
         """
         Make sure the Spline does not diverge
@@ -352,6 +347,42 @@ class SplineFit(Fit):
         return (full_penalty - np.max(np.abs(csp(x_full))))/start_penalizing
 
 class NPXFit(Fit): # NPX = Noise + Powerlaw + X (i.e. spline)
+    """
+    (N)oise + (P)owerlaw + (X) (i.e. spline) fit
+
+    This scheme can be used to fit powerlaw MSDs with a few extensions: we
+    include localization error and motion blur, and towards long time the MSD
+    might deviate from a powerlaw, which we then fit with a cubic spline (see
+    also `SplineFit`).
+
+    Parameters
+    ----------
+    data : noctiluca.TaggedSet, pandas.DataFrame, list of numpy.ndarray
+        the data to fit. See `Fit`.
+    ss_order : {0, 1}
+        the steady state order to assume
+    n : int >= 0
+        the number of spline points; set ``n = 0`` to fit a pure powerlaw.
+    previous_NPXFit_and_result : tuple (NPXFit, dict)
+        see also `SplineFit`; this can be used to run model selection over
+        ``n``.
+    motion_blur_f : float in [0, 1]
+        fractional exposure time (i.e. exposure time as fraction of the time
+        between frames). The resulting motion blur will be taken into account
+        in the fit.
+
+    Notes
+    -----
+    This fit uses the same compactification scheme as `SplineFit` for the
+    coordinates of the spline nodes.
+
+    Technically, the spline used to extend the MSD has ``n+1`` nodes, since of
+    course there has to be one at the transition from powerlaw to spline.
+
+    The vertical position of the first, and horizontal position of the last
+    spline points are fixed. So the parameters for the spline are ``x0``
+    through ``x(n-1)`` and ``y1`` through ``yn``.
+    """
     def __init__(self, data, ss_order, n=0,
                  previous_NPXFit_and_result=None,
                  motion_blur_f=0,
@@ -426,17 +457,78 @@ class NPXFit(Fit): # NPX = Noise + Powerlaw + X (i.e. spline)
             raise ValueError(f"Previous NPXFit has different number of dimensions ({self.prev_fit[0].d}) from the current data set ({self.d}).")
 
     def compactify(self, dt):
+        """
+        Compactification used for the current fit
+
+        Parameters
+        ----------
+        dt : np.array, dtype=float
+            the time lags to calculate compactification for. Should be ``> 0``
+            but might include ``np.inf``.
+
+        See also
+        --------
+        NPXFit, decompactify_log
+        """
         x = np.log(dt) / self.logT
         if self.ss_order == 0:
             x = (4/np.pi)*np.arctan(x)
         return x
 
     def decompactify_log(self, x):
+        """
+        Decompactify spline points (convenience function)
+
+        Parameters
+        ----------
+        x : np.array, dtype=float
+            the compactified x-coordinates
+
+        Returns
+        -------
+        log_dt : np.array
+            the corresponding ``log(dt [frames])`` values
+
+        See also
+        --------
+        compactify
+        """
         if self.ss_order == 0:
             x = np.tan(np.pi/4*x)
         return x * self.logT
 
     def _first_spline_point(self, x0, logG, alpha):
+        """
+        Determine the coordinates of the first spline point
+
+        The first spline point has to be chosen to match the powerlaw before.
+        This function determines y0 and the associated slope (which serves as
+        boundary condition for the spline) from the powerlaw and the cutoff x0.
+        For completeness, x0 is also returned.
+
+        Parameters
+        ----------
+        x0 : float
+            x-coordinate of the first spline point. This is a free parameter.
+        logG, alpha : float
+            the powerlaw at early times that we have to match
+
+        Returns
+        -------
+        x0 : float
+            same as input
+        logt0 : float
+            x0 decompactified (for convenience)
+        y0 : float
+            y0 matching the given powerlaw
+        dcdx0 : float
+            slope of the spline at ``(x0, y0)``, to be used as boundary
+            condition
+
+        See also
+        --------
+        decompactify_log, NPXFit
+        """
         logt0 = self.decompactify_log(x0)
         y0 = alpha*logt0 + logG
 
@@ -451,6 +543,22 @@ class NPXFit(Fit): # NPX = Noise + Powerlaw + X (i.e. spline)
         return x0, logt0, y0, dcdx0
 
     def _params2csp(self, params):
+        """
+        Assemble the cubic spline(s) from given parameters
+
+        Parameters
+        ----------
+        params : dict
+
+        Returns
+        -------
+        list of scipy.interpolate.CubicSpline
+            one for each spatial dimension
+
+        See also
+        --------
+        params2msdm
+        """
         csps = self.d*[None]
         if self.n > 0:
             for dim in range(self.d):
@@ -468,6 +576,21 @@ class NPXFit(Fit): # NPX = Noise + Powerlaw + X (i.e. spline)
         return csps
 
     def params2msdm(self, params):
+        """
+        Calculate the current MSD from given parameters
+
+        Parameters
+        ----------
+        params : dict
+
+        Returns
+        -------
+        list of (msd, m)
+
+        See also
+        --------
+        Fit.params2msdm
+        """
         csps = self._params2csp(params)
         msdm = []
         for dim, csp in enumerate(csps):
@@ -499,6 +622,19 @@ class NPXFit(Fit): # NPX = Noise + Powerlaw + X (i.e. spline)
         return msdm
             
     def initial_params(self):
+        """
+        Provide an initial parameter guess
+
+        These guesses come from a powerlaw curve fit to the empirical MSD. If ``n > 0`` we set ``x0 = 0.5`` and insert evenly spaced spline points above that.
+
+        If ``previous_NPXFit_and_result`` was specified at initialization, we
+        copy the powerlaw and ``x0`` and then place evenly spaced spline points
+        above, reproducing the existing best fit.
+
+        Returns
+        -------
+        params : dict
+        """
         params = {}
 
         if self.prev_fit:
@@ -578,6 +714,27 @@ class NPXFit(Fit): # NPX = Noise + Powerlaw + X (i.e. spline)
             return -self.prev_fit[1]['logL']
         
     def constraint_dx(self, params):
+        """
+        Make sure the spline points are properly ordered in x
+
+        We impose this constraint mainly to avoid crossing of spline points,
+        which usually leads to the spline diverging. On top of that,
+        conceptually this makes the solution well-defined.
+
+        Parameters
+        ----------
+        params : np.ndarray, dtype=float
+            the current fit parameters
+
+        Returns
+        -------
+        float
+            the constraint score
+
+        See also
+        --------
+        Fit
+        """
         # constraints are not applied if n == 0, so we can safely assume n > 0
         min_step = 1e-7 # x is compactified to (0, 1)
         x = np.array([[params[f"x{i} (dim {dim})"] for i in range(self.n)] + [self.x_last]
@@ -585,6 +742,23 @@ class NPXFit(Fit): # NPX = Noise + Powerlaw + X (i.e. spline)
         return np.min(np.diff(x, axis=-1))/min_step
     
     def constraint_logmsd(self, params):
+        """
+        Make sure the Spline does not diverge
+
+        Parameters
+        ----------
+        params : np.ndarray, dtype=float
+            the current fit parameters
+
+        Returns
+        -------
+        float
+            the constraint score
+
+        See also
+        --------
+        Fit
+        """
         # constraints are not applied if n == 0, so we can safely assume n > 0
         start_penalizing = 200
         full_penalty = 500
@@ -606,26 +780,18 @@ class TwoLocusRouseFit(Fit):
     This class implements a fit for two loci at fixed separation, but on the
     same polymer. A simple model for these dynamics is given by the infinite
     continuous Rouse model, which gives an analytical expression for the MSD
-    (implemented in `!rouse.twoLocusMSD`). Here we provide an implementation to
-    fit this MSD to data.
+    (implemented in `rouse.twoLocusMSD
+    <https://rouse.readthedocs.io/en/latest/rouse.html#rouse.twoLocusMSD>`).
+    Here we provide an implementation to fit this MSD to data.
 
-    The parameters for this MSD are
-
-    - the (squared) localization error ``noise2``
-    - the Rouse scaling prefactor Γ of a single locus on the polymer
-    - the steady state variance J of the distance between the loci. This
-      encodes the chain length between them
-
-    The parameter vector for this fit is thus ``d*[log(noise2), log(Γ),
-    log(J)]``.
-
-    Since all of these are positive quantities with units, it seems natural to
-    perform the fit in log-space. Thus we (effectively) place a 1/x prior on
-    all of them.
-
-    This class allows for separate fits to all the spatial dimensions of the
-    data. In a standard setting this makes sense only for the localization
-    error, so by default we fix Γ and J to be the same for all dimensions.
+    Parameters
+    ----------
+    data : noctiluca.TaggedSet, pandas.DataFrame, list of numpy.ndarray
+        the data to fit. See `Fit`.
+    motion_blur_f : float in [0, 1]
+        fractional exposure time (i.e. exposure time as fraction of the time
+        between frames). The resulting motion blur will be taken into account
+        in the fit.
     """
     def __init__(self, data,
                  motion_blur_f=0,
@@ -651,7 +817,17 @@ class TwoLocusRouseFit(Fit):
         """
         Give an MSD function (and mean = 0) for given parameters
 
-        Uses ``rouse.twoLocusMSD``
+        Parameters
+        ----------
+        params : dict
+
+        Returns
+        -------
+        list of (msd, m)
+
+        See also
+        --------
+        `rouse.twoLocusMSD <https://rouse.readthedocs.io/en/latest/rouse.html#rouse.twoLocusMSD>`
         """
         msdm = []
         for dim in range(self.d):
@@ -670,7 +846,11 @@ class TwoLocusRouseFit(Fit):
         
     def initial_params(self):
         """
-        Initial parameters from empirical MSD
+        Initial parameters from curve fit to empirical MSD
+
+        Returns
+        -------
+        params : dict
         """
         e_msd = MSD(self.data) / self.d
         dt_valid = np.nonzero(~np.isnan(e_msd))[0][1:]
