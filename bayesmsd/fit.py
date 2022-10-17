@@ -482,14 +482,33 @@ msdfun(dt,
             ``fit.parameters[...].fix_to``.
         offset : float
             the global offset to subtract; see Notes section of `Fit`.
+
+        Attributes
+        ----------
+        fit : Fit
+            the `Fit` object that this target is associated with.
+        fix_values : dict
+            the complete set of values to keep fixed; keys are parameter names,
+            values are (guaranteed to be) callables.
+        fix_values_resolution_order : list of str
+            list of parameter names. The fixes in `!fix_values` will be
+            executed in this order.
+        param_names : list of str
+            list of parameter names that remain independent; this determines
+            the order of entries when converting parameter dicts to arrays.
+        offset : float
+            constant to be subtracted from the target (i.e. added to the
+            likelihood). Can be used to ensure that the minimum value of the
+            target is close to 0.
         """
         def __init__(self, fit, fix_values=None, offset=0):
             self.fit = fit
 
+            # See class docstring
             fv = self.fit.expand_fix_values(fix_values)
             self.fix_values                  = fv[0]
             self.fix_values_resolution_order = fv[1]
-            self.param_names                 = fv[2] # this defines the order in params_array
+            self.param_names                 = fv[2]
 
             self.offset = offset
 
