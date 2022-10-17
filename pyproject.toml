@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "bayesmsd"
-version = "0.0.1"
+version = "0.1.0"
 authors = [
   { name="Simon Grosse-Holz", email="sgh256@mit.edu" }
 ]
@@ -21,9 +21,8 @@ dependencies = [
     "noctiluca >=0",
     "rouse >=0",
     "numpy >=1.20",
-    "scipy >=1.6",
+    "scipy >=1.7",
     "tqdm >=4",
-# to run tests, we also need multiprocessing, but it's not required for the module itself
 ]
 
 [project.urls]
