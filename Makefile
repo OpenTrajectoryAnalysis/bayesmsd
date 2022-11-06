@@ -9,14 +9,31 @@ COVERAGEREPFLAGS = --omit=*/noctiluca/*,*/rouse/*
 COVERAGEREPDIR = $(TESTDIR)/coverage
 DISTDIR = dist
 MODULE = bayesmsd
+CYTHONSRCDIR = bayesmsd/src
+CYTHONBINDIR = bayesmsd/bin
+CYTHONYELLOWDIR = doc/cython_yellow
 
-.PHONY : build pre-docs docs tests all clean mydocs mytests myall myclean
+.PHONY : recompile yellow build pre-docs docs tests all clean mydocs mytests myall myclean
 
 all : docs tests
 
-build :
+bayesmsd/src/*.c : bayesmsd/src/*.pyx
+	-@rm $(CYTHONSRCDIR)/*.c
+	CYTHONIZE=1 python3 setup.py build_ext --inplace
+
+recompile : bayesmsd/src/*.c
+
+yellow : bayesmsd/src/*.pyx
+	cython -3 -a $(CYTHONSRCDIR)/*.pyx
+	@mv $(CYTHONSRCDIR)/*.html $(CYTHONYELLOWDIR)
+
+build : recompile
 	-@cd $(DISTDIR) && rm *
-	python3 -m build
+	python3 -m build # source dist & linux wheel
+	@cd $(DISTDIR) && auditwheel repair *-linux_*.whl
+	@cd $(DISTDIR) && mv wheelhouse/* . && rmdir wheelhouse
+	@cd $(DISTDIR) && rm *-linux_*.whl
+	PYTHON_ONLY=1 python3 -m build --wheel # py3-none-any wheel
 
 pre-docs :
 	sphinx-apidoc -f -o $(SPHINXSOURCE) $(MODULE)
@@ -30,7 +47,7 @@ pre-docs :
 docs : pre-docs
 	cd $(SPHINXDIR) && $(MAKE) html
 
-tests :
+tests : recompile
 	cd $(TESTDIR) && coverage run $(TESTFILE)
 	@mv $(TESTDIR)/.coverage .
 	coverage html -d $(COVERAGEREPDIR) $(COVERAGEREPFLAGS)

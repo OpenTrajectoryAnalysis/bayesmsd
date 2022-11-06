@@ -154,6 +154,21 @@ class TestDiffusive(myTestCase):
         fit = bayesmsd.lib.NPXFit(self.data, ss_order=1, n=1, motion_blur_f=0.5)
         res = fit.run()
 
+    def test_python_vs_cython_logLs(self):
+        from bayesmsd.src.gp_py import logL as GP_logL_py
+        
+        trace = self.data[0][:][:, 0]
+        msd = np.arange(15).astype(float)
+        msd[-1] = 30 # for ss_order = 0
+
+        logL_0_py = GP_logL_py(trace, 0, msd)
+        logL_1_py = GP_logL_py(trace, 1, msd)
+        logL_0_cy = bayesmsd.gp.GP.logL(trace, 0, msd)
+        logL_1_cy = bayesmsd.gp.GP.logL(trace, 1, msd)
+
+        self.assertAlmostEqual(logL_0_py, logL_0_cy)
+        self.assertAlmostEqual(logL_1_py, logL_1_cy)
+
     def test_penalty(self):
         fit = bayesmsd.lib.NPXFit(self.data, ss_order=1)
         params = {

@@ -54,6 +54,11 @@ call append(3, [".. contents::",
 	       \"   :members:",
 	       \"",
 	       \])
+
+call search('cython', "w")
+let s:numlines = search("^bayesmsd", "n") - line(".")
+exec "delete _ " . s:numlines
+
 write!
 
 quit
