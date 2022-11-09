@@ -14,6 +14,7 @@ This module provides some commonly used MSD fits. Most notably:
   empirical MSD curve are significant and which are just noise. To compare fits
   with different number of spline points, you can use AIC.
 """
+import sys
 from copy import deepcopy
 
 import numpy as np
@@ -68,6 +69,28 @@ class SplineFit(Fit):
         between frames). The resulting motion blur will be taken into account
         in the fit.
 
+    Attributes
+    ----------
+    motion_blur_f : float
+    n : int
+    ss_order : {0, 1}
+    logT : float
+        log of trajectory length; used in compactification of spline
+        coordinates
+    upper_bc_type : str or tuple
+        the boundary condition for the upper end of the spline. For ``ss_order
+        == 0``, this sets the derivative to zero (MSD should plateau at
+        infinity), for ``ss_order == 1`` we use natural boundary conditions,
+        i.e. vanishing second derivative.
+    x_last : {1, 2}
+        the theoretical bound on the ``x`` coordinate for the spline points; 2
+        for ``ss_order == 0``, 1 for ``ss_order == 1``.
+    x_max : float
+        the maximum value for ``x`` such that the corresponding ``dt`` is still
+        numerically representable
+    prev_fit : tuple
+        same as parameter `!previous_spline_fit_and_result`.
+
     Notes
     -----
     Clearly the number of spline points controls the goodness of fit and the
@@ -93,40 +116,45 @@ class SplineFit(Fit):
                  motion_blur_f=0,
                 ):
         super().__init__(data)
+        self.logT = np.log(self.T)
         self.motion_blur_f = motion_blur_f
 
         if n < 2: # pragma: no cover
             raise ValueError(f"SplineFit with n = {n} < 2 does not make sense")
         self.n = n
-        
-        self.ss_order = ss_order
-        self.constraints = [self.constraint_dx,
-                            self.constraint_logmsd,
-                            self.constraint_Cpositive,
-                           ]
 
-        self.x_first = 0
+        self.ss_order = ss_order
         if self.ss_order == 0:
-            self.bc_type = ('natural', (1, 0.0))
+            self.upper_bc_type = (1, 0.0)
             self.x_last = 2
         elif self.ss_order == 1:
-            self.bc_type = 'natural'
+            self.upper_bc_type = 'natural'
             self.x_last = 1
         else: # pragma: no cover
             raise ValueError(f"Did not understand ss_order = {ss_order}")
+
+        # for ss_order == 0, x_last = 2 corresponds to dt = ∞, i.e. numerically
+        # we're bound by sys.float_info.max = 1.8e308, corresponding to x =
+        # 1.99
+        self.x_max = min(self.x_last, self.compactify(sys.float_info.max/2))
 
         # x lives in the compactified interval [0, 1] (or [0, 2]), while y =
         # log(MSD) can be any real number.
         self.parameters = {}
         for i in range(self.n):
-            self.parameters[f"x{i}"] = Parameter((self.x_first, self.x_last),
+            self.parameters[f"x{i}"] = Parameter((0, self.x_max),
                                                  linearization=Linearize.Bounded(),
                                                  )
             self.parameters[f"y{i}"] = Parameter((-np.inf, np.inf),
                                                  linearization=Linearize.Exponential(),
                                                  )
 
-        # x0 = x_first and x(n-1) = x_last are always fixed
+        self.constraints = [self.constraint_dx,
+                            self.constraint_logmsd,
+                            self.constraint_Cpositive,
+                           ]
+
+        # x0 = 0 and x(n-1) = x_last are always fixed
         del self.parameters["x0"]
         del self.parameters[f"x{self.n-1}"]
 
@@ -146,7 +174,7 @@ class SplineFit(Fit):
         --------
         SplineFit, decompactify_log
         """
-        x = np.log(dt) / np.log(self.T)
+        x = np.log(dt) / self.logT
         if self.ss_order == 0:
             x = (4/np.pi)*np.arctan(x)
         return x
@@ -172,7 +200,7 @@ class SplineFit(Fit):
         if self.ss_order == 0:
             x = np.tan(np.pi/4*x)
         x[x == np.tan(np.pi/2)] = np.inf # patch np.pi precision (np.tan(np.arctan(np.inf)) = 1.633e16 != np.inf)
-        return x * np.log(self.T)
+        return x * self.logT
 
     def _params2csp(self, params):
         """
@@ -191,12 +219,12 @@ class SplineFit(Fit):
         --------
         params2msdm
         """
-        x = np.array([self.x_first]
+        x = np.array([0]
                    + [params[f"x{i}"] for i in range(1, self.n-1)]
                    + [self.x_last]
                     )
         y = [params[f"y{i}"] for i in range(self.n)]
-        return interpolate.CubicSpline(x, y, bc_type=self.bc_type)
+        return interpolate.CubicSpline(x, y, bc_type=('natural', self.upper_bc_type))
 
     def params2msdm(self, params):
         """
@@ -209,7 +237,7 @@ class SplineFit(Fit):
         csp = self._params2csp(params)
 
         # Calculate powerlaw scaling extrapolating to short times
-        alpha0 = csp(0, nu=1) / np.log(self.T)
+        alpha0 = csp(0, nu=1) / self.logT
         if self.ss_order == 0:
             alpha0 *= 4/np.pi
 
@@ -242,7 +270,7 @@ class SplineFit(Fit):
         --------
         Fit.initial_params <bayesmsd.fit.Fit.initial_params>
         """
-        x_init = np.linspace(self.x_first, self.x_last, self.n)
+        x_init = np.linspace(0, self.x_max, self.n)
 
         # If we have a previous fit (e.g. when doing model selection), use that
         # for initialization
@@ -315,7 +343,7 @@ class SplineFit(Fit):
         Fit
         """
         min_step = 1e-7 # x is compactified to (0, 1)
-        x = np.array([self.x_first]
+        x = np.array([0]
                    + [params[f"x{i}"] for i in range(1, self.n-1)]
                    + [self.x_last]
                     )
@@ -371,6 +399,28 @@ class NPXFit(Fit): # NPX = Noise + Powerlaw + X (i.e. spline)
         between frames). The resulting motion blur will be taken into account
         in the fit.
 
+    Attributes
+    ----------
+    motion_blur_f : float
+    n : int
+    ss_order : {0, 1}
+    logT : float
+        log of trajectory length; used in compactification of spline
+        coordinates
+    upper_bc_type : str or tuple
+        the boundary condition for the upper end of the spline. For ``ss_order
+        == 0``, this sets the derivative to zero (MSD should plateau at
+        infinity), for ``ss_order == 1`` we use natural boundary conditions,
+        i.e. vanishing second derivative.
+    x_last : {1, 2}
+        the theoretical bound on the ``x`` coordinate for the spline points; 2
+        for ``ss_order == 0``, 1 for ``ss_order == 1``.
+    x_max : float
+        the maximum value for ``x`` such that the corresponding ``dt`` is still
+        numerically representable
+    prev_fit : tuple
+        same as parameter `!previous_NPXFit_and_result`.
+
     Notes
     -----
     This fit uses the same compactification scheme as `SplineFit` for the
@@ -395,6 +445,25 @@ class NPXFit(Fit): # NPX = Noise + Powerlaw + X (i.e. spline)
         self.n = n
         self.ss_order = ss_order
 
+        # Compactification & splines
+        self.logT = np.log(self.T)
+        if self.ss_order == 0:
+            # Fit in 4/π*arctan(log) space and add point at infinity, i.e. x =
+            # 4/π*arctan(log(∞)) = 2
+            self.upper_bc_type = (1, 0.0)
+            self.x_last = 2
+        elif self.ss_order == 1:
+            # Simply fit in log space, with natural boundary conditions
+            self.upper_bc_type = 'natural'
+            self.x_last = 1
+        else: # pragma: no cover
+            raise ValueError(f"Did not understand ss_order = {ss_order}")
+
+        # for ss_order == 0, x_last = 2 corresponds to dt = ∞, i.e. numerically
+        # we're bound by sys.float_info.max = 1.8e308, corresponding to x =
+        # 1.99
+        self.x_max = min(self.x_last, self.compactify(sys.float_info.max/2))
+
         # Set up parameters
         # Populate with templates -> expand dimensions -> remove templates
         # The powerlaw stops being positive definite at α = 2, so stay away from that
@@ -407,9 +476,8 @@ class NPXFit(Fit): # NPX = Noise + Powerlaw + X (i.e. spline)
                                   linearization=Linearize.Bounded()),
         }
 
-        x_bounds = (0, 2) if self.ss_order == 0 else (0, 1)
         for i in range(self.n+1):
-            self.parameters[f"x{i}"] = Parameter(x_bounds,
+            self.parameters[f"x{i}"] = Parameter((0, self.x_max),
                                                  linearization=Linearize.Bounded())
             self.parameters[f"y{i}"] = Parameter((-np.inf, np.inf),
                                                  linearization=Linearize.Exponential())
@@ -438,19 +506,6 @@ class NPXFit(Fit): # NPX = Noise + Powerlaw + X (i.e. spline)
                            ]
         if self.n == 0: # pure powerlaw; don't need constraints
             self.constraints = []
-
-        # Compactification & splines
-        self.logT = np.log(self.T)
-        if self.ss_order == 0:
-            # Fit in 4/π*arctan(log) space and add point at infinity, i.e. x = 4/π*arctan(log(∞)) = 2
-            self.upper_bc_type = (1, 0.0)
-            self.x_last = 2
-        elif self.ss_order == 1:
-            # Simply fit in log space, with natural boundary conditions
-            self.upper_bc_type = 'natural'
-            self.x_last = 1
-        else: # pragma: no cover
-            raise ValueError(f"Did not understand ss_order = {ss_order}")
 
         self.prev_fit = previous_NPXFit_and_result # for (alternative) initialization
         if self.prev_fit is not None and not self.prev_fit[0].d == self.d:
@@ -651,11 +706,11 @@ class NPXFit(Fit): # NPX = Noise + Powerlaw + X (i.e. spline)
                         logG  = res['params'][f"log(Γ) (dim {dim})"]
                         alpha = res['params'][     f"α (dim {dim})"]
 
-                        x_init = np.linspace(0.5, self.x_last, self.n+1)
+                        x_init = np.linspace(0.5, self.x_max, self.n+1)
                         y_init = alpha*self.decompactify_log(x_init) + logG
                     else:
                         x0 = res['params'][f"x0 (dim {dim})"]
-                        x_init = np.linspace(x0, self.x_last, self.n+1)
+                        x_init = np.linspace(x0, self.x_max, self.n+1)
                         y_init = csps[dim](x_init)
 
                     params.update({f"x{i} (dim {dim})" : x for i, x in enumerate(x_init[:-1])})
@@ -681,7 +736,7 @@ class NPXFit(Fit): # NPX = Noise + Powerlaw + X (i.e. spline)
 
             if self.n > 0:
                 x0, logt0, y0, dcdx0 = self._first_spline_point(0.5, logG, alpha)
-                x_init = np.linspace(x0, self.x_last, self.n+1)
+                x_init = np.linspace(x0, self.x_max, self.n+1)
 
                 if self.ss_order == 0:
                     # interpolate along 2-point spline
