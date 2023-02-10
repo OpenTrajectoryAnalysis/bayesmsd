@@ -13,9 +13,14 @@ CYTHONSRCDIR = bayesmsd/src
 CYTHONBINDIR = bayesmsd/bin
 CYTHONYELLOWDIR = doc/cython_yellow
 
-.PHONY : recompile yellow build pre-docs docs tests all clean mydocs mytests myall myclean
+.PHONY : setup recompile yellow build pre-docs docs tests all clean mydocs mytests myall myclean
 
-all : docs tests
+setup :
+	mkdir -p $(COVERAGEREPDIR) $(DISTDIR) $(CYTHONBINDIR) $(CYTHONYELLOWDIR)
+	nbstripout --install
+	vim "+g/-m nbstripout/norm A --drop-empty-cells" +wq .git/config
+
+all : docs tests build
 
 bayesmsd/src/*.c : bayesmsd/src/*.pyx
 	-@rm $(CYTHONSRCDIR)/*.c
