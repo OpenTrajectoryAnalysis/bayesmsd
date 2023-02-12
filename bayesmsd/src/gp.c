@@ -3545,8 +3545,8 @@ static __pyx_t_8bayesmsd_3bin_2gp_FLOAT_t __pyx_f_8bayesmsd_3bin_2gp__core_logL(
   __Pyx_XDECREF(__pyx_t_8);
   __Pyx_XDECREF(__pyx_t_9);
   __Pyx_XDECREF(__pyx_t_10);
-  __Pyx_WriteUnraisable("bayesmsd.bin.gp._core_logL", __pyx_clineno, __pyx_lineno, __pyx_filename, 1, 0);
-  __pyx_r = 0;
+  __Pyx_AddTraceback("bayesmsd.bin.gp._core_logL", __pyx_clineno, __pyx_lineno, __pyx_filename);
+  __pyx_r = 1e300;
   __pyx_L0:;
   __Pyx_RefNannyFinishContext();
   return __pyx_r;
@@ -3670,6 +3670,7 @@ static PyObject *__pyx_pf_8bayesmsd_3bin_2gp_logL(CYTHON_UNUSED PyObject *__pyx_
   __Pyx_memviewslice __pyx_t_9 = { 0, 0, { 0 }, { 0 }, { 0 } };
   __Pyx_memviewslice __pyx_t_10 = { 0, 0, { 0 }, { 0 }, { 0 } };
   __Pyx_memviewslice __pyx_t_11 = { 0, 0, { 0 }, { 0 }, { 0 } };
+  __pyx_t_8bayesmsd_3bin_2gp_FLOAT_t __pyx_t_12;
   int __pyx_lineno = 0;
   const char *__pyx_filename = NULL;
   int __pyx_clineno = 0;
@@ -4041,11 +4042,12 @@ static PyObject *__pyx_pf_8bayesmsd_3bin_2gp_logL(CYTHON_UNUSED PyObject *__pyx_
  */
   __Pyx_XDECREF(__pyx_r);
   __pyx_t_9 = __pyx_memoryview_copy_slice_dc_nn___pyx_t_8bayesmsd_3bin_2gp_FLOAT_t_c(__pyx_v_X); if (unlikely(!__pyx_t_9.memview)) __PYX_ERR(0, 186, __pyx_L1_error)
-  __pyx_t_6 = PyFloat_FromDouble(__pyx_f_8bayesmsd_3bin_2gp__core_logL(__pyx_v_C, __pyx_v_X, __pyx_t_9)); if (unlikely(!__pyx_t_6)) __PYX_ERR(0, 186, __pyx_L1_error)
-  __Pyx_GOTREF(__pyx_t_6);
+  __pyx_t_12 = __pyx_f_8bayesmsd_3bin_2gp__core_logL(__pyx_v_C, __pyx_v_X, __pyx_t_9); if (unlikely(__pyx_t_12 == ((__pyx_t_8bayesmsd_3bin_2gp_FLOAT_t)1e300) && PyErr_Occurred())) __PYX_ERR(0, 186, __pyx_L1_error)
   __PYX_XDEC_MEMVIEW(&__pyx_t_9, 1);
   __pyx_t_9.memview = NULL;
   __pyx_t_9.data = NULL;
+  __pyx_t_6 = PyFloat_FromDouble(__pyx_t_12); if (unlikely(!__pyx_t_6)) __PYX_ERR(0, 186, __pyx_L1_error)
+  __Pyx_GOTREF(__pyx_t_6);
   __pyx_r = __pyx_t_6;
   __pyx_t_6 = 0;
   goto __pyx_L0;

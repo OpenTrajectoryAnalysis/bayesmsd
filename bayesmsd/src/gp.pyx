@@ -97,7 +97,7 @@ cdef FLOAT_t LOG_2PI = np.log(2*np.pi)
 cdef FLOAT_t _core_logL(FLOAT_t[:, ::1] C, # will be overwritten
                         FLOAT_t[::1]    x,
                         FLOAT_t[::1]    y, # copy of x
-                       ):
+                       ) except? 1e300:   # return +inf on error
     # Implementation notes
     # - (slogdet, solve) is faster than eigendecomposition (~3x) in python;
     #   test in C

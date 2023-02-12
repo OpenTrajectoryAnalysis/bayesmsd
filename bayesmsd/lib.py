@@ -432,6 +432,13 @@ class NPXFit(Fit): # NPX = Noise + Powerlaw + X (i.e. spline)
     The vertical position of the first, and horizontal position of the last
     spline points are fixed. So the parameters for the spline are ``x0``
     through ``x(n-1)`` and ``y1`` through ``yn``.
+
+    The theoretical upper bound for the exponent of the powerlaw part is 2; at
+    this point the covariance matrix of the process stops being positive
+    definite. Due to numerical inaccuracies, this can start being an issue for
+    exponents close to (but smaller than) 2 as well. Thus, the upper bound for
+    these exponents is set to 1.99, i.e. if a fit returns 1.99 this is just the
+    upper bound of the parameter space and not a precise estimate.
     """
     def __init__(self, data, ss_order, n=0,
                  previous_NPXFit_and_result=None,
@@ -472,7 +479,7 @@ class NPXFit(Fit): # NPX = Noise + Powerlaw + X (i.e. spline)
                                   linearization=Linearize.Exponential()),
             'log(Γ)'  : Parameter((-np.inf, np.inf),
                                   linearization=Linearize.Exponential()),
-            'α'       : Parameter((0, 2-1e-10), # stay away from upper bound
+            'α'       : Parameter((0, 1.99), # stay away from upper bound
                                   linearization=Linearize.Bounded()),
         }
 
