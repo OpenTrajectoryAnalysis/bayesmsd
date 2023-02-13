@@ -479,7 +479,7 @@ class NPXFit(Fit): # NPX = Noise + Powerlaw + X (i.e. spline)
                                   linearization=Linearize.Exponential()),
             'log(Γ)'  : Parameter((-np.inf, np.inf),
                                   linearization=Linearize.Exponential()),
-            'α'       : Parameter((0, 1.99), # stay away from upper bound
+            'α'       : Parameter((0.01, 1.99), # stay away from bounds, since covariance becomes singular, leading to numerical issues when getting close
                                   linearization=Linearize.Bounded()),
         }
 
