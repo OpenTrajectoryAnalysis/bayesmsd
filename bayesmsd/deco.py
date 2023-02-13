@@ -160,7 +160,17 @@ def imaging(noise2=0, f=0, alpha0=1):
             b[ind] = ( (1+phi)**(a+2) + (1-phi)**(a+2) - 2 ) / ( phi**2 * (a+1) * (a+2) )
             b[~ind] = 1
 
-            return b*msdfun(dt, **kwargs) - 2*B + 2*noise2
+            out = b*msdfun(dt, **kwargs) - 2*B + 2*noise2
+
+            # In some edge cases, the MSD can get close to zero, i.e.
+            # numerically potentially negative.
+            if np.any(out < 0):
+                if np.min(out) > -1e-10:
+                    out[out < 0] = 0
+                else:
+                    raise ValueError("MSD became significantly (by more than 1e-10) negative during imaging correction. This is probably due to a bug; please report it.")
+
+            return out
 
         # Assemble a useful docstring
         try:
