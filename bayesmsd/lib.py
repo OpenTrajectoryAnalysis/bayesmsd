@@ -27,6 +27,8 @@ from . import deco
 from .fit import Fit
 from .parameters import Parameter, Linearize
 
+_MAX_LOG = 500
+
 class SplineFit(Fit):
     """
     Fit a spline MSD
@@ -145,7 +147,7 @@ class SplineFit(Fit):
             self.parameters[f"x{i}"] = Parameter((0, self.x_max),
                                                  linearization=Linearize.Bounded(),
                                                  )
-            self.parameters[f"y{i}"] = Parameter((-np.inf, np.inf),
+            self.parameters[f"y{i}"] = Parameter((-np.inf, _MAX_LOG),
                                                  linearization=Linearize.Exponential(),
                                                  )
 
@@ -244,8 +246,9 @@ class SplineFit(Fit):
         @deco.MSDfun
         @deco.imaging(f=self.motion_blur_f, alpha0=alpha0)
         def msd(dt, csp=csp):
-            # dt == 0 is filtered out by MSDfun
-            return np.exp(csp(self.compactify(dt))) / self.d
+            with np.errstate(under='ignore'):
+                # dt == 0 is filtered out by MSDfun
+                return np.exp(csp(self.compactify(dt))) / self.d
 
         return self.d*[(msd, 0)]
             
@@ -368,7 +371,7 @@ class SplineFit(Fit):
         Fit
         """
         start_penalizing = 200
-        full_penalty = 500
+        full_penalty = _MAX_LOG
         
         csp = self._params2csp(params)
         x_full = self.compactify(np.arange(1, self.T))
@@ -475,9 +478,9 @@ class NPXFit(Fit): # NPX = Noise + Powerlaw + X (i.e. spline)
         # Populate with templates -> expand dimensions -> remove templates
         # The powerlaw stops being positive definite at α = 2, so stay away from that
         self.parameters = {
-            'log(σ²)' : Parameter((-np.inf, np.inf),
+            'log(σ²)' : Parameter((-np.inf, _MAX_LOG),
                                   linearization=Linearize.Exponential()),
-            'log(Γ)'  : Parameter((-np.inf, np.inf),
+            'log(Γ)'  : Parameter((-np.inf, _MAX_LOG),
                                   linearization=Linearize.Exponential()),
             'α'       : Parameter((0.01, 1.99), # stay away from bounds, since covariance becomes singular, leading to numerical issues when getting close
                                   linearization=Linearize.Bounded()),
@@ -486,7 +489,7 @@ class NPXFit(Fit): # NPX = Noise + Powerlaw + X (i.e. spline)
         for i in range(self.n+1):
             self.parameters[f"x{i}"] = Parameter((0, self.x_max),
                                                  linearization=Linearize.Bounded())
-            self.parameters[f"y{i}"] = Parameter((-np.inf, np.inf),
+            self.parameters[f"y{i}"] = Parameter((-np.inf, _MAX_LOG),
                                                  linearization=Linearize.Exponential())
 
         # For the spline, y0 and xn are fixed
@@ -673,7 +676,8 @@ class NPXFit(Fit): # NPX = Noise + Powerlaw + X (i.e. spline)
                     ind = dt > t0
                     if np.any(ind):
                         x = self.compactify(dt[ind])
-                        out[ind] = np.exp(csp(x))
+                        with np.errstate(under='ignore'):
+                            out[ind] = np.exp(csp(x))
                     return out
 
             # Apply MSD function decorators
@@ -823,7 +827,7 @@ class NPXFit(Fit): # NPX = Noise + Powerlaw + X (i.e. spline)
         """
         # constraints are not applied if n == 0, so we can safely assume n > 0
         start_penalizing = 200
-        full_penalty = 500
+        full_penalty = _MAX_LOG
 
         csps = self._params2csp(params)
         x_full = self.compactify(np.arange(1, self.T))
@@ -867,7 +871,7 @@ class TwoLocusRouseFit(Fit):
         for name in ['log(σ²)', 'log(Γ)', 'log(J)']:
             for dim in range(self.d):
                 dim_name = f"{name} (dim {dim})"
-                self.parameters[f"{name} (dim {dim})"] = Parameter((-np.inf, np.inf),
+                self.parameters[f"{name} (dim {dim})"] = Parameter((-np.inf, _MAX_LOG),
                                                                    linearization=Linearize.Exponential())
 
                 if name != 'log(σ²)' and dim > 0:

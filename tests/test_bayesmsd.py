@@ -379,7 +379,7 @@ class TestProfiler(myTestCase):
         mci = profiler.find_MCI()
 
         for name in names:
-            self.assert_array_equal(mci[name][1], [-np.inf, np.inf])
+            self.assert_array_equal(mci[name][1], [-np.inf, bayesmsd.lib._MAX_LOG])
     
     def test_singleparam_no_profiling(self):
         self.fit.parameters['y0'].fix_to = 0
