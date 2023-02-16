@@ -164,7 +164,7 @@ def imaging(noise2=0, f=0, alpha0=1):
 
             # In some edge cases, the MSD can get close to zero, i.e.
             # numerically potentially negative.
-            if np.any(out < 0):
+            if np.any(out < 0): # pragma: no cover
                 if np.min(out) > -1e-10:
                     out[out < 0] = 0
                 else:
