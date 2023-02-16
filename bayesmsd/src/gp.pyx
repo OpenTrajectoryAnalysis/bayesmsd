@@ -1,3 +1,10 @@
+## cython: profiling=True
+# ^ remove second # to compile for profiler
+## cython: linetrace=True
+## cython: binding=True
+## distutils: define_macros=CYTHON_TRACE_NOGIL=1
+# ^ remove second # to compile for line_profiler
+
 import numpy as np
 cimport numpy as np
 np.import_array()
@@ -75,15 +82,39 @@ cdef void msd2C_ss1(FLOAT_t[::1]    msd,
     assert C.shape[1] >= ti.shape[0]-1
     assert msd.shape[0] > maxti
 
+### 11.2 ms
+#     for m in range(ti.shape[0]-1):
+#         for n in range(m, ti.shape[0]-1):
+#             # Note: if ti are unevenly spaced (i.e. missing data, this is the
+#             # usual case), then C is not strictly Toeplitz
+#             C[m, n] = 0.5*(  msd[abs(ti[m+1]-ti[n])]
+#                            + msd[abs(ti[m]  -ti[n+1])]
+#                            - msd[abs(ti[m+1]-ti[n+1])]
+#                            - msd[abs(ti[m]  -ti[n])]
+#                           )
+### 10.5 ms
     for m in range(ti.shape[0]-1):
-        for n in range(m, ti.shape[0]-1):
-            # Note: if ti are unevenly spaced (i.e. missing data, this is the
-            # usual case), then C is not strictly Toeplitz
-            C[m, n] = 0.5*(  msd[abs(ti[m+1]-ti[n])]
-                           + msd[abs(ti[m]  -ti[n+1])]
-                           - msd[abs(ti[m+1]-ti[n+1])]
-                           - msd[abs(ti[m]  -ti[n])]
+        C[m, m] = msd[ti[m+1]-ti[m]]
+
+        for n in range(m+1, ti.shape[0]-1):
+            C[m, n] = 0.5*(  msd[ti[n+1]-ti[m]]
+                           + msd[ti[n]  -ti[m+1]]
+                           - msd[ti[n+1]-ti[m+1]]
+                           - msd[ti[n]  -ti[m]]
                           )
+### 10.8 ms
+#     # We have to populate only the upper triangle of C; so let's use the lower
+#     # one for storage during calculation, specifically for msd[ti-tj]. This is
+#     # NxN (while C is (N-1)x(N-1)), but with zero diagonal; so we can store its
+#     # strictly lower triangle in the lower triangle of C, calculate C in the
+#     # upper triangle, and then fix the diagonal. Incidentally, the diagonal is
+#     # already correct, so no fixing
+#     for m in range(ti.shape[0]-1): # lower + diagonal
+#         for n in range(m+1):
+#             C[m, n] = msd[ti[m+1]-ti[n]]
+#     for m in range(ti.shape[0]-2): # strictly upper
+#         for n in range(m+1, ti.shape[0]-1):
+#             C[m, n] = 0.5*( C[n, m] + C[n-1, m+1] - C[n, m+1] - C[n-1, m] )
 
 ################## Gaussian Process likelihood ###############################
 
