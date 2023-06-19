@@ -648,7 +648,7 @@ msdfun(dt,
 
         # Set up the minimization target
         # also allows us to convert initial_params to appropriate array
-        min_target = Fit.MinTarget(self, fix_values, initial_offset)
+        min_target = self.MinTarget(self, fix_values, initial_offset)
 
         p0 = min_target.params_dict2array(initial_params)
         bounds = [self.parameters[name].bounds for name in min_target.param_names]
