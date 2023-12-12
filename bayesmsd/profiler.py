@@ -712,7 +712,9 @@ class Profiler():
                 
             if ( all(used_pe is self.point_estimate for _, used_pe in used_point_estimate.items())
                  or not self.restart_on_better_point_estimate ):
-                break
+                # empty blocks are not detected correctly by `coverage` in py3.8+
+                # see https://github.com/nedbat/coveragepy/issues/772
+                break # pragma: no cover
         
         if show_progress and self.bar is not None: # pragma: no cover
             self.bar.close()

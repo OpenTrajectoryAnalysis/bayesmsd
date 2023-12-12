@@ -154,16 +154,6 @@ class TestDiffusive(myTestCase):
         fit = bayesmsd.lib.NPXFit(self.data, ss_order=1, n=1, motion_blur_f=0.5)
         res = fit.run()
 
-    def testDiscreteRouse(self):
-        fit = bayesmsd.lib.DiscreteRouseFit(self.data)
-        res = fit.run()
-
-        fit = bayesmsd.lib.DiscreteRouseFit(self.data, motion_blur_f=1.)
-        res = fit.run()
-            
-        fit = bayesmsd.lib.DiscreteRouseFit(self.data, motion_blur_f=1., use_approx=True)
-        res = fit.run()
-
     def test_python_vs_cython_logLs(self):
         from bayesmsd.src.gp_py import logL as GP_logL_py
         
@@ -313,6 +303,16 @@ class TestRouseLoci(myTestCase):
                                     previous_NPXFit_and_result = (new2_fit, new2_res),
                                     )
 
+    def testDiscreteRouse(self):
+        fit = bayesmsd.lib.DiscreteRouseFit(self.data)
+        res = fit.run()
+
+        fit = bayesmsd.lib.DiscreteRouseFit(self.data, motion_blur_f=1.)
+        res = fit.run()
+
+        fit = bayesmsd.lib.DiscreteRouseFit(self.data, motion_blur_f=1., use_approx=True)
+        res = fit.run()
+
 class TestProfiler(myTestCase):
     # set up diffusive data set
     def setUp(self):
@@ -425,10 +425,8 @@ class TestProfiler(myTestCase):
             params = min_target.params_array2dict(params_array)
             return 0 if params['y0'] < 0.73 else 1e10
 
-# vvvvvvvvvvvvvvvvvvvvv
         MinTarget__call__ = type(min_target).__call__
         type(min_target).__call__ = _min_target
-# ^^^^^^^^^^^^^^^^^^^^^
 
         profiler.min_target_from_fit = min_target
 
@@ -436,9 +434,7 @@ class TestProfiler(myTestCase):
         self.assertEqual(roots[0], 0)
         self.assertAlmostEqual(roots[1], 0.73)
 
-# vvvvvvvvvvvvvvvvvvvvv
         type(min_target).__call__ = MinTarget__call__
-# ^^^^^^^^^^^^^^^^^^^^^
 
 class TestRandomStuff(myTestCase):
     def test_MSD(self):
