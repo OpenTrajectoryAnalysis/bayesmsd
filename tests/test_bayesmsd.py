@@ -154,6 +154,16 @@ class TestDiffusive(myTestCase):
         fit = bayesmsd.lib.NPXFit(self.data, ss_order=1, n=1, motion_blur_f=0.5)
         res = fit.run()
 
+    def testDiscreteRouse(self):
+        fit = bayesmsd.lib.DiscreteRouseFit(self.data)
+        res = fit.run()
+
+        fit = bayesmsd.lib.DiscreteRouseFit(self.data, motion_blur_f=1.)
+        res = fit.run()
+            
+        fit = bayesmsd.lib.DiscreteRouseFit(self.data, motion_blur_f=1., use_approx=True)
+        res = fit.run()
+
     def test_python_vs_cython_logLs(self):
         from bayesmsd.src.gp_py import logL as GP_logL_py
         
@@ -532,4 +542,4 @@ class TestNewImplementation(myTestCase):
         self.assertIn('_kwargstring', non_imaging_fun.__dict__)
 
 if __name__ == '__main__': # pragma: no cover
-    unittest.main(module=__file__[:-3])
+    unittest.main(module=__file__.split('/')[-1][:-3])

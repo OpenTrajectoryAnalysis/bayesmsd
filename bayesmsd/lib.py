@@ -18,7 +18,7 @@ import sys
 from copy import deepcopy
 
 import numpy as np
-from scipy import optimize, interpolate
+from scipy import optimize, interpolate, special
 
 import rouse
 from noctiluca.analysis import MSD
@@ -691,7 +691,9 @@ class NPXFit(Fit): # NPX = Noise + Powerlaw + X (i.e. spline)
         """
         Provide an initial parameter guess
 
-        These guesses come from a powerlaw curve fit to the empirical MSD. If ``n > 0`` we set ``x0 = 0.5`` and insert evenly spaced spline points above that.
+        These guesses come from a powerlaw curve fit to the empirical MSD. If
+        ``n > 0`` we set ``x0 = 0.5`` and insert evenly spaced spline points
+        above that.
 
         If ``previous_NPXFit_and_result`` was specified at initialization, we
         copy the powerlaw and ``x0`` and then place evenly spaced spline points
@@ -931,5 +933,123 @@ class TwoLocusRouseFit(Fit):
             params[f"log(σ²) (dim {dim})"] = np.log(noise2)
             params[ f"log(Γ) (dim {dim})"] = np.log(G)
             params[ f"log(J) (dim {dim})"] = np.log(J)
+
+        return params
+
+class DiscreteRouseFit(Fit):
+    r"""
+    Fit a Rouse model for a single monomer of an infinite discrete chain
+    (with localization error).
+
+    Parameters
+    ----------
+    data : noctiluca.TaggedSet, pandas.DataFrame, list of numpy.ndarray
+        the data to fit. See `Fit`.
+    motion_blur_f : float in [0, 1], optional
+        fractional exposure time (i.e. exposure time as fraction of the time
+        between frames). The resulting motion blur will be taken into account
+        in the fit.
+    use_approx : bool, optional
+        use a numerically more stable approximation instead of the exact
+        expression. The approximation matches the asymptotics exactly and
+        around the crossover stays correct to within +/-2% of the exact
+        expression. See Notes for more details.
+
+    Notes
+    -----
+    The analytical expression for this MSD is
+
+    .. math:: \text{MSD}(\Delta t) = 2D\Delta t \exp\left(-\lambda\Delta t\right) \left[ I_0\left(\lambda\Delta t\right) + I_1\left(\lambda\Delta t\right) \right]\,,
+
+    where :math:`D` is the diffusion constant of a single monomer,
+    :math:`I_\nu(z)` are Bessel functions of the first kind, :math:`\lambda =
+    \frac{8D*2}{\pi\Gamma^2}` and :math:`\Gamma` is the prefactor of the large
+    time asymptote.
+
+    Asymptotically, the above expression gives :math:`2D\Delta t` at short
+    times (the MSD of a free monomer) and :math:`\Gamma\sqrt{\Delta t}` at long
+    times (the MSD of a locus on a Rouse chain).
+
+    The exact expression above is evaluated using ``scipy.special.ive`` for the
+    exponentially scaled Bessel functions, which gives valid results "only" for
+    :math:`z < 10^9`. However, the MSD written above turns out to be
+    represented quite well by a simple soft-min approximation between the
+    asymptotes:
+
+    .. math:: \text{MSD}_\text{approx.}(\Delta t) = \left[ \left(2D\Delta t\right)^{-n} + \left(\Gamma\sqrt{\Delta t}\right)^{-n} \right]^{-\frac{1}{n}}
+
+    with :math:`n = 2.5`. Clearly, this approximation is designed to match the
+    asymptotes of the exact expression; around the crossover inbetween it stays
+    correct to within :math:`\pm 2\%`. Use ``use_approx = True`` to use this
+    approximation instead of the exact expression.
+    """
+    def __init__(self, data,
+                 motion_blur_f=0,
+                 use_approx=False,
+                ):
+        super().__init__(data)
+        self.motion_blur_f = motion_blur_f
+        self._use_approx = use_approx
+        
+        self.ss_order = 1
+        
+        self.parameters = {}
+        for name in ['log(σ²)', 'log(D)', 'log(Γ)']:
+            for dim in range(self.d):
+                dim_name = f"{name} (dim {dim})"
+                self.parameters[f"{name} (dim {dim})"] = Parameter((-np.inf, _MAX_LOG), 
+                                                                   linearization=Linearize.Exponential())
+
+                if name != 'log(σ²)' and dim > 0:
+                    self.parameters[dim_name].fix_to = f"{name} (dim 0)"
+
+        self.constraints = [] # Don't need to check Cpositive, will always be true for Rouse MSDs
+        
+    def params2msdm(self, params):
+        msdm = []
+        for dim in range(self.d):
+            with np.errstate(under='ignore'): # if noise == 0
+                noise2 = np.exp(params[f"log(σ²) (dim {dim})"])
+                D      = np.exp(params[ f"log(D) (dim {dim})"])
+                G      = np.exp(params[ f"log(Γ) (dim {dim})"])
+                
+            # Define "raw" msd function
+            if self._use_approx:
+                @deco.MSDfun
+                @deco.imaging(noise2=noise2, f=self.motion_blur_f, alpha0='auto')
+                def msd(dt, D=D, G=G):
+                    n = 2.5
+                    return ((2*D*dt)**(-n) + (G*np.sqrt(dt))**(-n))**(-1/n)
+            else:
+                @deco.MSDfun
+                @deco.imaging(noise2=noise2, f=self.motion_blur_f, alpha0='auto')
+                def msd(dt, D=D, G=G):
+                    k = 8*D**2 / (np.pi*G**2)
+                    return 2*D*dt*( special.ive(0, k*dt) + special.ive(1, k*dt) )
+
+            msdm.append((msd, 0))
+        return msdm
+        
+    def initial_params(self):
+        """
+        Initial parameters from curve fit to empirical MSD
+
+        Returns
+        -------
+        params : dict
+        """
+        e_msd = MSD(self.data) / self.d
+        dt_valid = np.nonzero(~np.isnan(e_msd))[0][1:]
+        dt_valid_early = dt_valid[:min(5, len(dt_valid))]
+
+        D = np.nanmean(e_msd[dt_valid_early]/dt_valid_early)
+        G = np.nanmean(e_msd[dt_valid_early]/np.sqrt(dt_valid_early))
+        noise2 = e_msd[dt_valid[0]]/2
+
+        params = {}
+        for dim in range(self.d):
+            params[f"log(σ²) (dim {dim})"] = np.log(noise2)
+            params[ f"log(D) (dim {dim})"] = np.log(D)
+            params[ f"log(Γ) (dim {dim})"] = np.log(G)
 
         return params

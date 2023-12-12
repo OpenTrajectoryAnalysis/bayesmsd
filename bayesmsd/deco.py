@@ -133,8 +133,9 @@ def imaging(noise2=0, f=0, alpha0=1):
         the variance (σ²) of the Gaussian localization error to add
     f : float, 0 <= f <= 1
         the exposure time as fraction of the frame time.
-    alpha0 : float, 0 <= alpha0 <= 2
-        the effective short time scaling exponent.
+    alpha0 : float, 0 <= alpha0 <= 2 or 'auto'
+        the effective short time scaling exponent. Set to ``'auto'`` to
+        determine from finite differences of the "raw" MSD around Δt=f.
     Notes
     -----
     ``f = 0`` is ideal stroboscopic illumination, i.e. no motion blur.
@@ -148,6 +149,11 @@ def imaging(noise2=0, f=0, alpha0=1):
         def wrap(dt, noise2=noise2, f=f, alpha0=alpha0, **kwargs):
             if f == 0:
                 return msdfun(dt, **kwargs) + 2*noise2
+
+            if alpha0 == 'auto':
+                t0 = np.array([f])
+                t1 = 1.001*t0
+                alpha0 = np.log(msdfun(t1, **kwargs) / msdfun(t0, **kwargs)) / np.log(t1/t0)
 
             a = alpha0
             B = msdfun(np.array([f]), **kwargs)[0] / ( (a+1)*(a+2) )
