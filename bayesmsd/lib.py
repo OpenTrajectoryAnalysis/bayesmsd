@@ -963,7 +963,7 @@ class DiscreteRouseFit(Fit):
 
     where :math:`D` is the diffusion constant of a single monomer,
     :math:`I_\nu(z)` are Bessel functions of the first kind, :math:`\lambda =
-    \frac{8D*2}{\pi\Gamma^2}` and :math:`\Gamma` is the prefactor of the large
+    \frac{8D^2}{\pi\Gamma^2}` and :math:`\Gamma` is the prefactor of the large
     time asymptote.
 
     Asymptotically, the above expression gives :math:`2D\Delta t` at short

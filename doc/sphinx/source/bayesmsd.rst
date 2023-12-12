@@ -56,4 +56,3 @@ bayesmsd.profiler
    :undoc-members:
    :show-inheritance:
 
-
