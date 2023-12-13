@@ -1019,13 +1019,15 @@ class DiscreteRouseFit(Fit):
                 @deco.imaging(noise2=noise2, f=self.motion_blur_f, alpha0='auto')
                 def msd(dt, D=D, G=G):
                     n = 2.5
-                    return ((2*D*dt)**(-n) + (G*np.sqrt(dt))**(-n))**(-1/n)
+                    with np.errstate(under='ignore'):
+                        return ((2*D*dt)**(-n) + (G*np.sqrt(dt))**(-n))**(-1/n)
             else:
                 @deco.MSDfun
                 @deco.imaging(noise2=noise2, f=self.motion_blur_f, alpha0='auto')
                 def msd(dt, D=D, G=G):
                     k = 8*D**2 / (np.pi*G**2)
-                    return 2*D*dt*( special.ive(0, k*dt) + special.ive(1, k*dt) )
+                    with np.errstate(under='ignore'):
+                        return 2*D*dt*( special.ive(0, k*dt) + special.ive(1, k*dt) )
 
             msdm.append((msd, 0))
         return msdm
