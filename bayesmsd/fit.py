@@ -261,7 +261,7 @@ class Fit(metaclass=ABCMeta):
         done = []
         for msd, _ in self.params2msdm(params):
             if msd not in done:
-                min_ev = np.min(np.linalg.eigvalsh(msd2C_fun(msd, np.arange(self.T), self.ss_order)))
+                min_ev = np.min(np.linalg.eigvalsh(msd2C_fun(msd, np.arange(self.T), self.ss_order))) / msd(1)
                 scores.append(min_ev / min_ev_okay)
                 done.append(msd)
 
