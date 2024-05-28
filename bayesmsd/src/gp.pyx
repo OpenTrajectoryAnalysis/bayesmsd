@@ -53,11 +53,11 @@ cdef void msd2C_ss0(FLOAT_t[::1]    msd,
 
     assert C.shape[0] >= ti.shape[0]
     assert C.shape[1] >= ti.shape[0]
-    assert msd.shape[0] > maxti-1
+    assert T >= maxti+1
 
     for m in range(ti.shape[0]):
         C[m, m] = 0.5*msd[T-1]
-        for n in range(m, ti.shape[0]):
+        for n in range(m+1, ti.shape[0]):
             C[m, n] = 0.5*( msd[T-1] - msd[abs(ti[m] - ti[n])] )
 
 @cython.boundscheck(False)
