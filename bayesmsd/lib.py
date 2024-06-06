@@ -739,7 +739,7 @@ class NPXFit(Fit): # NPX = Noise + Powerlaw + X (i.e. spline)
                                                   np.log(dt_valid),
                                                   np.log(e_msd[dt_valid]),
                                                   p0=(1, 0),
-                                                  bounds=([0, -np.inf], [2, np.inf]),
+                                                  bounds=([0.05, -np.inf], [1.95, np.inf]),
                                               )
 
             for dim in range(self.d):
