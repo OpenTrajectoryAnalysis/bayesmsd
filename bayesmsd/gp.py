@@ -76,7 +76,7 @@ class GP: # just a namespace
         Parameters
         ----------
         data : a `TaggedSet` of `Trajectory`
-        ss_order : {0, 1}
+        ss_order : {0, 0.5, 1}
             steady state order; see module documentation.
         msd_ms : list of tuples (msd, mean)
             this should be a list with one entry for each spatial dimension of the
@@ -117,7 +117,7 @@ class GP: # just a namespace
         Tmax = max(map(len, data))
         dt = np.arange(Tmax)
         array_msd_ms = [[msd(dt), m] for msd, m in msd_ms]
-        if ss_order == 0:
+        if ss_order < 1:
             for dim, (msd, m) in enumerate(msd_ms):
                 array_msd_ms[dim][0] = np.append(array_msd_ms[dim][0], msd(np.inf))
 

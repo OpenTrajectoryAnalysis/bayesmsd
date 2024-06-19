@@ -84,7 +84,7 @@ def logL(trace, ss_order, msd, mean=0):
     trace : (T,) np.ndarray
         the data. Should be recorded at constant time lag; missing data are
         indicated with ``np.nan``.
-    ss_order : {0, 1}
+    ss_order : {0, 0.5, 1}
         steady state order; see module documentation.
     msd : np.ndarray
         the MSD defining the Gaussian process, evaluated up to (at least) ``T =
@@ -106,12 +106,20 @@ def logL(trace, ss_order, msd, mean=0):
     """
     ti = np.nonzero(~np.isnan(trace))[0]
     
-    if ss_order == 0:
+    if ss_order < 1:
         X = trace[ti] - mean
         C = msd2C_ss0(msd, ti)
+
+        if ss_order == 0.5: # condition on first data point
+            mu = X[0] * C[1:, 0]/C[0, 0]
+            X = X[1:] - mu
+            C = C - C[:, [0]]*C[[0], :]/C[0, 0]
+            C = C[1:, 1:]
+
     elif ss_order == 1:
         X = np.diff(trace[ti]) - mean*np.diff(ti)
         C = msd2C_ss1(msd, ti)
+
     else: # pragma: no cover
         raise ValueError(f"Invalid steady state order: {ss_order}")
 

@@ -162,11 +162,14 @@ class TestDiffusive(myTestCase):
         msd[-1] = 30 # for ss_order = 0
 
         logL_0_py = GP_logL_py(trace, 0, msd)
+        logL_05_py = GP_logL_py(trace, 0.5, msd)
         logL_1_py = GP_logL_py(trace, 1, msd)
         logL_0_cy = bayesmsd.gp.GP.logL(trace, 0, msd)
+        logL_05_cy = bayesmsd.gp.GP.logL(trace, 0.5, msd)
         logL_1_cy = bayesmsd.gp.GP.logL(trace, 1, msd)
 
         self.assertAlmostEqual(logL_0_py, logL_0_cy)
+        self.assertAlmostEqual(logL_05_py, logL_05_cy)
         self.assertAlmostEqual(logL_1_py, logL_1_cy)
 
     def test_penalty(self):

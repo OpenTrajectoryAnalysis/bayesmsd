@@ -32,6 +32,11 @@ We discriminate two cases, depending on what exactly is stationary:
               = γ(0) - 1/2*μ(|i-j|)
 
    We call this case a steady state of order 0.
+ + a special case of order 0 is the scenario where we have a stationary
+   process, but when evaluating e.g. likelihoods we wish to condition on the
+   first data point of the trajectory. This renders the resulting likelihoods
+   comparable to those of an order 1 stationary process and can thus be useful
+   sometimes; we refer to this scenario as ``ss_order = 0.5``.
  + in many cases (e.g. sampling a diffusing particle's position) the
    trajectories themselves will not be stationary, but the increment process
    is. In this case the Gaussian process of interest is the one generating the

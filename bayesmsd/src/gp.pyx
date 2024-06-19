@@ -181,20 +181,34 @@ def logL(trace, ss_order, msd, mean=0):
     --------
     ds_logL
     """
-    cdef FLOAT_t[:, ::1] C
-    cdef FLOAT_t[::1]    X
+    cdef FLOAT_t[:, ::1] C, c
+    cdef FLOAT_t[::1]    X, x
 
     ti = np.nonzero(~np.isnan(trace))[0].astype(np.uint)
-    N = len(ti)
+    cdef SIZE_t N = len(ti)
 
-    if ss_order == 0:
+    if ss_order < 1:
         X = trace[ti] - mean
         C = np.empty((N, N), dtype=float)
         msd2C_ss0(msd, ti, C)
+
+        if ss_order == 0.5: # condition on first data point
+            c = np.empty((N-1, N-1), dtype=float)
+            x = np.empty(N-1, dtype=float)
+
+            for i in range(N-1):
+                x[i] = X[i+1] - X[0] * C[0, i+1]/C[0, 0]
+                for j in range(i, N-1):
+                    c[i, j] = C[i+1, j+1] - C[0, i+1]*C[0, j+1]/C[0, 0]
+
+            C = c
+            X = x
+
     elif ss_order == 1:
         X = np.diff(trace[ti]) - mean*np.diff(ti)
         C = np.empty((N-1, N-1), dtype=float)
         msd2C_ss1(msd, ti, C)
+
     else: # pragma: no cover
         raise ValueError(f"Invalid steady state order: {ss_order}")
 
