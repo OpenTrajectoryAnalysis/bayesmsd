@@ -154,6 +154,10 @@ class TestDiffusive(myTestCase):
         fit = bayesmsd.lib.NPXFit(self.data, ss_order=1, n=1, motion_blur_f=0.5)
         res = fit.run()
 
+    def testNP(self):
+        fit = bayesmsd.lib.NPFit(self.data)
+        res = fit.run()
+
     def test_python_vs_cython_logLs(self):
         from bayesmsd.src.gp_py import logL as GP_logL_py
         

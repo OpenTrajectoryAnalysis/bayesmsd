@@ -534,8 +534,10 @@ class NPXFit(Fit): # NPX = Noise + Powerlaw + X (i.e. spline)
 
     def logprior(self, params):
         nx = len([name for name in params if name.startswith('x')]) 
-        na = len([name for name in params if name.startswith('α')]) 
-        return special.gammaln(nx+1) - nx*np.log(self.x_max) - na*np.log(2)
+        logpi = special.gammaln(nx+1) - nx*np.log(self.x_max)
+
+        names = [name for name in params if name.startswith('α')]
+        return logpi - np.sum([np.log(np.diff(self.parameters[name].bounds)[0]) for name in names])
 
     def compactify(self, dt):
         """
@@ -1101,5 +1103,101 @@ class DiscreteRouseFit(Fit):
             params[f"log(σ²) (dim {dim})"] = np.log(noise2)
             params[ f"log(D) (dim {dim})"] = np.log(D)
             params[ f"log(Γ) (dim {dim})"] = np.log(G)
+
+        return params
+
+class NPFit(Fit):
+    """
+    Fit a powerlaw plus noise
+
+    This is a simpler version of `NPXFit`, getting rid of the spline part. Note
+    that it also uses a slightly different parametrization: ``(log(αΓ), α)``
+    instead of ``(Γ, α)``. This is because the former often behaves better in
+    cases where ``α`` is not identifiable (low). In that case this new
+    parametrization keeps ``Γ`` constant and thus identifiable.
+
+    Parameters
+    ----------
+    data : noctiluca.TaggedSet, pandas.DataFrame, list of numpy.ndarray
+        the data to fit. See `Fit`.
+    motion_blur_f : float in [0, 1], optional
+        fractional exposure time (i.e. exposure time as fraction of the time
+        between frames). The resulting motion blur will be taken into account
+        in the fit.
+    """
+    def __init__(self, data, motion_blur_f=0):
+        super().__init__(data)
+        self.motion_blur_f = motion_blur_f
+        
+        self.ss_order = 1
+        
+        self.parameters = {
+            'log(σ²)' : Parameter((-np.inf, _MAX_LOG),
+                                  linearization=Linearize.Exponential()),
+            'log(αΓ)' : Parameter((-np.inf, _MAX_LOG),
+                                  linearization=Linearize.Exponential()),
+            'α'       : Parameter((0.01, 1.99), # stay away from bounds, since covariance becomes singular, leading to numerical issues when getting close
+                                  linearization=Linearize.Bounded()),
+        }
+
+        # Expand dimensions and remove templates
+        # Fix higher dimensions to dim 0, except for localization error
+        param_names = list(self.parameters.keys()) # keys() itself is mutable
+        for name in param_names:
+            for dim in range(self.d):
+                dim_name = f"{name} (dim {dim})"
+                self.parameters[dim_name] = deepcopy(self.parameters[name])
+
+                if name != 'log(σ²)' and dim > 0:
+                    self.parameters[dim_name].fix_to = f"{name} (dim 0)"
+
+            del self.parameters[name]
+
+        self.improper_priors = [name for name in self.parameters
+                                if name.startswith('log(')
+                                ]
+            
+        self.constraints = []
+
+    def logprior(self, params):
+        names = [name for name in params if name.startswith('α')]
+        return -np.sum([np.log(np.diff(self.parameters[name].bounds)[0]) for name in names])
+
+    def params2msdm(self, params):
+        msdm = []
+        for dim in range(self.d):
+            with np.errstate(under='ignore'):
+                noise2 = np.exp(params[f"log(σ²) (dim {dim})"])
+                aG     = np.exp(params[f"log(αΓ) (dim {dim})"])
+            alpha = params[f"α (dim {dim})"]
+            
+            @deco.MSDfun
+            @deco.imaging(noise2=noise2, f=self.motion_blur_f, alpha0=alpha)
+            def msd(dt, aG=aG, alpha=alpha):
+                return (aG/alpha)*(dt**alpha)
+            
+            msdm.append((msd, 0))
+            
+        return msdm
+    
+    def initial_params(self):
+        params = {}
+        
+        e_msd = MSD(self.data)/self.d
+        dt_valid = np.nonzero(~np.isnan(e_msd))[0][1:]
+        (alpha, logG), _ = optimize.curve_fit(lambda x, alpha, logG : alpha*x + logG,
+                                              np.log(dt_valid),
+                                              np.log(e_msd[dt_valid]),
+                                              p0=(1, 0),
+                                              bounds=([0.05, -np.inf], [1.95, np.inf]),
+                                          )
+        
+        logs2 = np.log(e_msd[dt_valid[0]]/2)
+        logs2 = min(self.parameters['log(σ²) (dim 0)'].bounds[1], logs2)
+
+        for dim in range(self.d):
+            params[f"log(σ²) (dim {dim})"] = logs2
+            params[f"log(αΓ) (dim {dim})"] = logG + np.log(alpha)
+            params[      f"α (dim {dim})"] = alpha
 
         return params
