@@ -266,6 +266,9 @@ class TestRouseLoci(myTestCase):
 
     @patch('builtins.print')
     def testNPX(self, mock_print):
+        fit = bayesmsd.lib.NPXFit(self.data, ss_order=0.5, n=1)
+        res = fit.run()
+
         fit = bayesmsd.lib.NPXFit(self.data, ss_order=0, n=1)
         res = fit.run()
 

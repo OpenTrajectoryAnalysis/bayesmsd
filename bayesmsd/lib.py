@@ -41,7 +41,7 @@ class SplineFit(Fit):
     achieve this within the spline fits, the time coordinate is compactified
     from ``t in [1, T]`` to ``x in [0, 1]``:
 
-    - if ``ss_order == 0``, we need ``t = inf`` to be accessible. We therefore
+    - if ``ss_order < 1``, we need ``t = inf`` to be accessible. We therefore
       choose the compactification ``x = 4/π*arctan(log(t)/log(T))``, such that
       ``x(t=∞) = 2`` while ``x(t=T) = 1``.
     - if ``ss_order == 1``, we simply work in log-space, and normalize: ``x =
@@ -86,7 +86,7 @@ class SplineFit(Fit):
         i.e. vanishing second derivative.
     x_last : {1, 2}
         the theoretical bound on the ``x`` coordinate for the spline points; 2
-        for ``ss_order == 0``, 1 for ``ss_order == 1``.
+        for ``ss_order < 1``, 1 for ``ss_order == 1``.
     x_max : float
         the maximum value for ``x`` such that the corresponding ``dt`` is still
         numerically representable
@@ -126,7 +126,7 @@ class SplineFit(Fit):
         self.n = n
 
         self.ss_order = ss_order
-        if self.ss_order == 0:
+        if self.ss_order < 1:
             self.upper_bc_type = (1, 0.0)
             self.x_last = 2
         elif self.ss_order == 1:
@@ -135,7 +135,7 @@ class SplineFit(Fit):
         else: # pragma: no cover
             raise ValueError(f"Did not understand ss_order = {ss_order}")
 
-        # for ss_order == 0, x_last = 2 corresponds to dt = ∞, i.e. numerically
+        # for ss_order < 1, x_last = 2 corresponds to dt = ∞, i.e. numerically
         # we're bound by sys.float_info.max = 1.8e308, corresponding to x =
         # 1.99
         self.x_max = min(self.x_last, self.compactify(sys.float_info.max/2))
@@ -177,7 +177,7 @@ class SplineFit(Fit):
         SplineFit, decompactify_log
         """
         x = np.log(dt) / self.logT
-        if self.ss_order == 0:
+        if self.ss_order < 1:
             x = (4/np.pi)*np.arctan(x)
         return x
             
@@ -199,7 +199,7 @@ class SplineFit(Fit):
         --------
         compactify
         """
-        if self.ss_order == 0:
+        if self.ss_order < 1:
             x = np.tan(np.pi/4*x)
         x[x == np.tan(np.pi/2)] = np.inf # patch np.pi precision (np.tan(np.arctan(np.inf)) = 1.633e16 != np.inf)
         return x * self.logT
@@ -240,7 +240,7 @@ class SplineFit(Fit):
 
         # Calculate powerlaw scaling extrapolating to short times
         alpha0 = csp(0, nu=1) / self.logT
-        if self.ss_order == 0:
+        if self.ss_order < 1:
             alpha0 *= 4/np.pi
 
         @deco.MSDfun
@@ -257,7 +257,7 @@ class SplineFit(Fit):
         Give suitable initial parameters for the spline
 
         To find proper initial parameters, we perform a simple powerlaw fit to
-        the empirical MSD. In the ``ss_order == 0`` case this is just used as
+        the empirical MSD. In the ``ss_order < 1`` case this is just used as
         boundary condition for a two-point spline between the first time lag
         and infinity (where we use the empirical steady state variance as
         initial value). If ``ss_order == 1`` this fitted powerlaw is the
@@ -282,7 +282,7 @@ class SplineFit(Fit):
             y_init = fit._params2csp(res['params'])(x_init)
         else:
             # Fit linear (i.e. powerlaw), which is useful in both cases.
-            # For ss_order == 0 we will use it as boundary condition,
+            # For ss_order < 1 we will use it as boundary condition,
             # for ss_order == 1 this will be the initial MSD
             e_msd = MSD(self.data)
             dt_valid = np.nonzero(~np.isnan(e_msd))[0][1:] # skip msd[0] = 0
@@ -293,7 +293,7 @@ class SplineFit(Fit):
                                            bounds=([0, -np.inf], np.inf),
                                           )
                 
-            if self.ss_order == 0:
+            if self.ss_order < 1:
                 # interpolate along 2-point spline
                 ss_var = np.nanmean(np.concatenate([traj.abs()[:][:, 0]**2 for traj in self.data]))
                 csp = interpolate.CubicSpline(np.array([0, 2]),
@@ -417,7 +417,7 @@ class NPXFit(Fit): # NPX = Noise + Powerlaw + X (i.e. spline)
         i.e. vanishing second derivative.
     x_last : {1, 2}
         the theoretical bound on the ``x`` coordinate for the spline points; 2
-        for ``ss_order == 0``, 1 for ``ss_order == 1``.
+        for ``ss_order < 1``, 1 for ``ss_order == 1``.
     x_max : float
         the maximum value for ``x`` such that the corresponding ``dt`` is still
         numerically representable
@@ -450,14 +450,14 @@ class NPXFit(Fit): # NPX = Noise + Powerlaw + X (i.e. spline)
         super().__init__(data)
         self.motion_blur_f = motion_blur_f
 
-        if n == 0 and ss_order == 0:
+        if n == 0 and ss_order < 1:
             raise ValueError("Incompatible assumptions: pure powerlaw (n=0) and trajectory steady state (ss_order=0)")
         self.n = n
         self.ss_order = ss_order
 
         # Compactification & splines
         self.logT = np.log(self.T)
-        if self.ss_order == 0:
+        if self.ss_order < 1:
             # Fit in 4/π*arctan(log) space and add point at infinity, i.e. x =
             # 4/π*arctan(log(∞)) = 2
             self.upper_bc_type = (1, 0.0)
@@ -469,7 +469,7 @@ class NPXFit(Fit): # NPX = Noise + Powerlaw + X (i.e. spline)
         else: # pragma: no cover
             raise ValueError(f"Did not understand ss_order = {ss_order}")
 
-        # for ss_order == 0, x_last = 2 corresponds to dt = ∞, i.e. numerically
+        # for ss_order < 1, x_last = 2 corresponds to dt = ∞, i.e. numerically
         # we're bound by sys.float_info.max = 1.8e308, corresponding to x =
         # 1.99
         self.x_max = min(self.x_last, self.compactify(sys.float_info.max/2))
@@ -536,7 +536,7 @@ class NPXFit(Fit): # NPX = Noise + Powerlaw + X (i.e. spline)
         NPXFit, decompactify_log
         """
         x = np.log(dt) / self.logT
-        if self.ss_order == 0:
+        if self.ss_order < 1:
             x = (4/np.pi)*np.arctan(x)
         return x
 
@@ -558,7 +558,7 @@ class NPXFit(Fit): # NPX = Noise + Powerlaw + X (i.e. spline)
         --------
         compactify
         """
-        if self.ss_order == 0:
+        if self.ss_order < 1:
             x = np.tan(np.pi/4*x)
         return x * self.logT
 
@@ -598,7 +598,7 @@ class NPXFit(Fit): # NPX = Noise + Powerlaw + X (i.e. spline)
         y0 = alpha*logt0 + logG
 
         # also need derivative for C-spline boundary condition
-        if self.ss_order == 0:
+        if self.ss_order < 1:
             dcdx0 = alpha / ( 4/np.pi*self.logT/(self.logT**2 + logt0**2) )
         elif self.ss_order == 1:
             dcdx0 = alpha * self.logT
@@ -731,7 +731,7 @@ class NPXFit(Fit): # NPX = Noise + Powerlaw + X (i.e. spline)
 
         else:
             # Fit linear (i.e. powerlaw), which is useful in both (ss_order) cases.
-            # For ss_order == 0 we will use it as boundary condition,
+            # For ss_order < 1 we will use it as boundary condition,
             # for ss_order == 1 this will be the initial MSD
             e_msd = MSD(self.data)/self.d
             dt_valid = np.nonzero(~np.isnan(e_msd))[0][1:]
@@ -751,7 +751,7 @@ class NPXFit(Fit): # NPX = Noise + Powerlaw + X (i.e. spline)
                 x0, logt0, y0, dcdx0 = self._first_spline_point(0.5, logG, alpha)
                 x_init = np.linspace(x0, self.x_max, self.n+1)
 
-                if self.ss_order == 0:
+                if self.ss_order < 1:
                     # interpolate along 2-point spline
                     ss_var = np.nanmean(np.concatenate([np.sum(traj[:]**2, axis=1) for traj in self.data]))/self.d
                     csp = interpolate.CubicSpline(np.array([x0, 2]),

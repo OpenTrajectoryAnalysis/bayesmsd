@@ -34,7 +34,7 @@ def msd2C_fun(msd, ti, ss_order):
     Parameters
     ----------
     msd : callable, use the `MSDfun <bayesmsd.deco.MSDfun>` decorator
-        note that for ``ss_order == 0`` we expect ``msd(np.inf)`` to be
+        note that for ``ss_order < 1`` we expect ``msd(np.inf)`` to be
         well-defined.
     ti : np.ndarray, dtype=int
         times at which there are data in the trajectory
@@ -50,7 +50,7 @@ def msd2C_fun(msd, ti, ss_order):
     --------
     MSDfun <bayesmsd.deco.MSDfun>, bayesmsd
     """
-    if ss_order == 0:
+    if ss_order < 1:
         return 0.5*( msd(np.inf) - msd(ti[:, None] - ti[None, :]) )
     elif ss_order == 1:
         return 0.5*(  msd(ti[1:, None] - ti[None,  :-1]) + msd(ti[:-1, None] - ti[None, 1:  ])
@@ -177,7 +177,7 @@ def generate(msd_def, T, n=1):
         # NOT (-1, 0) as one might assume. In this case this is quite handy,
         # since we want the (n, T, d) order of dimensions.
 
-    if ss_order == 0:
+    if ss_order < 1:
         return TaggedSet((Trajectory(mysteps + ms[None, :]) for mysteps in steps), hasTags=False)
     elif ss_order == 1:
         steps = np.insert(steps, 0, -ms[None, :], axis=1) # all trajectories (via cumsum) start at zero
