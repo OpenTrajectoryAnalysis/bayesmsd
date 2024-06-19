@@ -11,12 +11,13 @@ from copy import deepcopy
 from tqdm.auto import tqdm
 
 import numpy as np
-from scipy import optimize
+from scipy import optimize, special, stats
 
 from noctiluca import make_TaggedSet
 
 from .gp import GP, msd2C_fun
 from .deco import method_verbosity_patch
+from .profiler import Profiler
 
 class Fit(metaclass=ABCMeta):
     """
@@ -143,6 +144,10 @@ class Fit(metaclass=ABCMeta):
         self.max_penalty = 1e10
         
         self.verbosity = 1
+
+        # List of those parameter names that have improper priors
+        # Remember to define ``self.logprior`` for those that have proper priors!
+        self.improper_priors = []
         
     def vprint(self, v, *args, **kwargs):
         """
@@ -191,13 +196,16 @@ class Fit(metaclass=ABCMeta):
         Parameters
         ----------
         params : dict
-            the current parameter values
+            the current parameter values; note that only the free parameters
+            are given
 
         Returns
         -------
         float
         """
-        return 0
+        # Since we included the possibility to calculate evidences, model
+        # implementations need to actually take care of the prior
+        raise NotImplementedError # pragma: no cover
     
     @abstractmethod
     def initial_params(self):
@@ -570,6 +578,7 @@ msdfun(dt,
             float
             """
             params = self.params_array2dict(params_array)
+            params_free = {name : params[name] for name in self.param_names}
 
             penalty = self.fit._penalty(params)
             if penalty < 0: # infeasible
@@ -579,7 +588,7 @@ msdfun(dt,
                                    self.fit.ss_order,
                                    self.fit.params2msdm(params),
                                   ) \
-                       - self.fit.logprior(params) \
+                       - self.fit.logprior(params_free) \
                        + penalty \
                        - self.offset
 
@@ -720,3 +729,243 @@ msdfun(dt,
             return all_res
         else:
             return all_res[-1][0]
+
+    def evidence(self,
+                 conf = 0.8,
+                 conf_tol = 0.1,
+                 n_cred = 10,
+                 n_steps_per_cred = 2,
+                 f_integrate = 0.99,
+                 log10L_improper = 3,
+                ):
+        """
+        Estimate evidence for this model
+
+        The parameters to this function are mostly technical and can remain at
+        their default values for most use cases. It is possible that in some
+        cases speedups can be achieved by tuning them, but generally the
+        defaults should be reasonable enough.
+
+        Parameters
+        ----------
+        conf : float
+            confidence level for the initial `Profiler` run. Will usually be
+            some not-too-high value.
+        conf_tol : float
+            tolerance for `conf`. Usually relatively high.
+        n_cred : float
+            how far (at most) from the point estimate to evaluate the
+            likelihood function, in multiples of the initial Profiler credible
+            interval.
+        n_steps_per_cred : float
+            how many grid points to place between point estimate and boundary
+            of initial credible interval.
+        f_integrate : float
+            proxy parameter to determine the threshold until which the
+            likelihood will be evaluated. Can be interpreted as "if the
+            posterior was Gaussian, we would cover at least a fraction f of its
+            mass".
+        log10L_improper : float
+            width of surrogate prior for improper priors. See Notes.
+
+        Returns
+        -------
+        float
+            estimated evidence for this model
+
+        Notes
+        -----
+        This function estimates model evidence by integrating the likelihood
+        over a non-uniform grid. The outline of the algorithm is as follows:
+
+         + run the fit to get a point estimate
+         + run a `Profiler` (in conditional posterior mode) to get order of
+           magnitude estimates for the steps in different directions over which
+           the likelihood changes. This run is controlled by `conf` and
+           `conf_tol`; since we do not need precise estimates, but just an idea
+           of how big steps should generally be, the default is to search with
+           relatively low accuracy (high `conf_tol`) for a not-too-strong
+           decrease in likelihood (medium values for `conf`).
+         + given the profiler results, assemble a grid of parameter values over
+           which the likelihood may be evaluated. This step is controlled by
+           `n_cred` (how big to make the grid) and `n_steps_per_cred` (how fine
+           to make the grid)
+         + start by evaluating the grid completely within the bounds given by
+           the profiler
+         + grow the integration region iteratively: at each step, find the grid
+           points that are adjacent to another one that a) has been evaluated
+           already and b) has a value above the cutoff controlled by
+           `f_integrate`. Evaluate the likelihood on all these candidate
+           points; repeat
+         + with the likelihood evaluated at all relevant grid points, integrate
+           numerically by multiplying the voxel volume and summing.
+
+        For the resulting evidence value to be accurate and comparable across
+        different models, it is tantamount that the priors be properly
+        normalized. This means that a) use this function only with models that
+        implement the `logprior` function correctly; b) models with improper
+        priors (e.g. for localization error we usually use a log-flat prior)
+        are problematic. We sneak around the latter issue with a debatable
+        method: for the cases where we have improper priors, we fix a suitable,
+        broad, and importantly proper prior on the location of the point
+        estimate. This approach is clearly suspicious, because we fix the
+        *prior* to a result from the data. One might argue that at the end of
+        the day we are basically "just" fixing the order of magnitude (think:
+        units) of a given parameter, which we might also do by checking the
+        experimental protocol. But at the end of the day, it remains a
+        questionable method; any reader with better ideas for how to handle
+        this case should email me.
+
+        Having accepted the dubious approach to improper priors: the surrogate
+        (proper) prior we finally use is a Gaussian with standard deviation
+        ``log(10)*log10L_improper``. The idea here is that if the improper
+        prior is log-flat (my most common use case), the parameter
+        `log10L_improper` basically gives the number of valid digits in a
+        parameter estimate that we would accept as "not fine tuned".
+        Specifically: consider "fitting" a model without any parameters; if I
+        can improve upon that fit by introducing one new parameter with the
+        value 17, we might accept the second model as reasonable; if the fit
+        only improves if I fix the new parameter to 17.2193427, we might say
+        that the new model requires too much fine tuning. Upon personal
+        reflection, ``log10L_improper = 3`` valid digits seems to be
+        reasonable; reasonable people might differ.
+        """
+        names = self.independent_parameters()
+        # Note: line_profiler shows that chi2.ppf() is quite slow; amounting to
+        # ~5% of total runtime on an example trajectory
+        DlogL = stats.chi2(df=len(names)).ppf(f_integrate)/2
+        n_steps = np.round(n_steps_per_cred*n_cred).astype(int)
+        sigma_improper = np.log(10)*log10L_improper
+
+        # Run profiler
+        profiler = Profiler(self, profiling=False, conf=conf, conf_tol=conf_tol)
+        mci = profiler.find_MCI()
+        assert set(mci.keys()) == set(names)
+        
+        # Adjust for improper priors
+        # Doing this properly requires editing the bayesmsd.lib implementations
+        # Need to think about how to combine this with possible user-defined priors
+        # --> actually, no: since we just compactify and add a flat prior
+        # --> however, need to be able to check which parameters have proper/improper priors
+        # --> also note that e.g. α in NPXFit actually has a wrong prior
+        def compactify(x, x0):
+            return special.erf((x-x0)/sigma_improper)
+        def decompactify(y, x0):
+            return special.erfinv(y)*sigma_improper + x0
+
+        impropers = [name for name in names if name in self.improper_priors]
+        for name in impropers:
+            mci[name+'_orig'] = mci[name]
+            mci[name] = (0., compactify(mci[name][1], mci[name][0]))
+
+        # Assemble parameter grid
+        xi = []
+        for name in names:
+            x_point = mci[name][0]
+            
+            x_lo = x_point + n_cred*(mci[name][1][0]-x_point)
+            x_min = self.parameters[name].bounds[0]
+            if name in impropers:
+                x_min = compactify(x_min, x_point)
+            
+            x_hi = x_point + n_cred*(mci[name][1][1]-x_point)
+            x_max = self.parameters[name].bounds[1]
+            if name in impropers:
+                x_max = compactify(x_max, x_point)
+            
+            x = np.concatenate([np.linspace(x_lo, x_point, n_steps)[:-1],
+                                [x_point],
+                                np.linspace(x_point, x_hi, n_steps)[1:],
+                               ])
+            
+            # might not be necessary; penalization takes care of out of bounds values
+            # not for impropers though...
+            # TBD
+            ind = np.nonzero(x < x_min)[0]
+            if len(ind) > 0:
+                x[ind] = np.nan
+                x[ind[-1]] = x_min
+                
+            ind = np.nonzero(x > x_max)[0]
+            if len(ind) > 0:
+                x[ind] = np.nan
+                x[ind[0]] = x_max
+                
+            xi.append(x)
+
+        # Calculate parameter space volume (i.e. prior) for each grid cell
+        logprior = np.array(0)
+        for i, (name, x) in enumerate(zip(names, xi)):
+            dx = np.diff(x)
+            
+            # Make sure to correctly account for nan's (i.e. parameter bounds)
+            dx_p = 0.5*dx[1:]
+            dx_p[np.isnan(dx_p)] = 0.
+            dx_m = 0.5*dx[:-1]
+            dx_m[np.isnan(dx_m)] = 0.
+            
+            with np.errstate(divide='ignore'): # log(0) for dx=nan=0
+                logprior = logprior[..., None] + np.log(dx_p+dx_m)
+
+            if name in impropers: # others should be accounted for in self.logprior() !
+                logprior -= np.log(2)
+            
+            # Only evaluate "central" grid points (for which we have a prior value)
+            xi[i] = x[1:-1]
+
+        # Set up likelihood evaluations
+        i_center = (logprior.shape[0]-1)//2
+        assert i_center == n_steps-2
+        assert np.all(np.array(logprior.shape) == 2*i_center+1)
+
+        logL = np.empty(logprior.shape, dtype=float)
+        logL[:] = -np.inf
+
+        neg_logL = self.MinTarget(self)
+        def log_likelihood(x):
+            if np.any(np.isnan(x)):
+                return -np.inf # pragma: no cover
+
+            params = neg_logL.params_array2dict(len(names)*[None])
+            params |= dict(zip(names, x))
+            return -neg_logL(neg_logL.params_dict2array(params))
+        
+        # Decompactify grid values
+        for i, name in enumerate(names):
+            if name in impropers:
+                xi[i] = decompactify(xi[i], mci[name+'_orig'][0])
+
+        # Evaluate central grid points (those within the estimated credible interval)
+        igrid = np.meshgrid(*len(xi)*[np.arange(-n_steps_per_cred, n_steps_per_cred+1)])
+        ilist = np.stack([g.flatten() for g in igrid], axis=-1)
+        for ind in ilist:
+            logL[tuple(ind+i_center)] = log_likelihood([x[i] for x, i in zip(xi, ind+i_center)])
+
+        # Iterative evaluation until we leave the maximum
+        logL_max = np.max(logL)
+        while True:
+            candidates = -np.inf*np.ones(logL.shape, dtype=float)
+            for ax in range(len(logL.shape)):
+                ind_c = len(logL.shape)*[slice(None)]
+                ind_L = len(logL.shape)*[slice(None)]
+
+                ind_c[ax] = slice(1, None)
+                ind_L[ax] = slice(None, -1)
+                candidates[tuple(ind_c)] = np.maximum(candidates[tuple(ind_c)], logL[tuple(ind_L)])
+
+                ind_c[ax] = slice(None, -1)
+                ind_L[ax] = slice(1, None)
+                candidates[tuple(ind_c)] = np.maximum(candidates[tuple(ind_c)], logL[tuple(ind_L)])
+
+            candidates[logL > -np.inf] = -np.inf
+
+            ilist = np.stack(np.nonzero(candidates > logL_max-DlogL), axis=-1)
+            if len(ilist) == 0:
+                break
+
+            for ind in ilist:
+                logL[tuple(ind)] = log_likelihood([x[i] for x, i in zip(xi, ind)])
+
+        # Integrate likelihood to find evidence
+        with np.errstate(under='ignore'):
+            return special.logsumexp(logL + logprior)

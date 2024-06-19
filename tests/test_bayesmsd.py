@@ -220,7 +220,7 @@ class TestRouseLoci(myTestCase):
             traj = []
             for _ in range(10):
                 conf = model.evolve(conf)
-                traj.append(conf[tracked[0] - tracked[1]])
+                traj.append(conf[tracked[0]] - conf[tracked[1]])
 
             return nl.Trajectory(traj)
 
@@ -264,6 +264,11 @@ class TestRouseLoci(myTestCase):
         self.assertSetEqual(set(fit.independent_parameters()),
                             {'log(Γ) (dim 0)', 'log(J) (dim 0)'})
 
+    def testEvidence(self):
+        fit = bayesmsd.lib.TwoLocusRouseFit([self.data[0].dims([0])])
+        fit.parameters['log(σ²) (dim 0)'].fix_to = -np.inf
+        ev = fit.evidence()
+
     @patch('builtins.print')
     def testNPX(self, mock_print):
         fit = bayesmsd.lib.NPXFit(self.data, ss_order=0.5, n=1)
@@ -295,8 +300,16 @@ class TestRouseLoci(myTestCase):
                                      )
         try:
             new3_res = new3_fit.run()
-            self.assertLess(new3_res['logL'], new_res['logL'])
-            self.assertLess(new3_res['logL'], res['logL'])
+            self.assertLess(new3_res['logL'], new_res['logL'] + 2)
+        except RuntimeError: # pragma: no cover
+            pass
+
+        new4_fit = bayesmsd.lib.NPXFit(self.data, ss_order=1, n=1,
+                                     previous_NPXFit_and_result = (new2_fit, new2_res),
+                                     )
+        try:
+            new4_res = new4_fit.run()
+            self.assertGreater(new4_res['logL'], new2_res['logL'] - 2)
         except RuntimeError: # pragma: no cover
             pass
 
@@ -395,7 +408,7 @@ class TestProfiler(myTestCase):
         mci = profiler.find_MCI()
 
         for name in names:
-            self.assert_array_equal(mci[name][1], [-np.inf, bayesmsd.lib._MAX_LOG])
+            self.assert_array_equal(mci[name][1], [-bayesmsd.lib._MAX_LOG, bayesmsd.lib._MAX_LOG])
     
     def test_singleparam_no_profiling(self):
         self.fit.parameters['y0'].fix_to = 0

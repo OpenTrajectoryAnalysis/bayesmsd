@@ -27,7 +27,7 @@ from . import deco
 from .fit import Fit
 from .parameters import Parameter, Linearize
 
-_MAX_LOG = 500
+_MAX_LOG = 200
 
 class SplineFit(Fit):
     """
@@ -147,9 +147,11 @@ class SplineFit(Fit):
             self.parameters[f"x{i}"] = Parameter((0, self.x_max),
                                                  linearization=Linearize.Bounded(),
                                                  )
-            self.parameters[f"y{i}"] = Parameter((-np.inf, _MAX_LOG),
+            self.parameters[f"y{i}"] = Parameter((-_MAX_LOG, _MAX_LOG),
                                                  linearization=Linearize.Exponential(),
                                                  )
+
+        self.improper_priors = [f"y{i}" for i in range(self.n)]
 
         self.constraints = [self.constraint_dx,
                             self.constraint_logmsd,
@@ -161,6 +163,10 @@ class SplineFit(Fit):
         del self.parameters[f"x{self.n-1}"]
 
         self.prev_fit = previous_spline_fit_and_result # for (alternative) initialization
+
+    def logprior(self, params):
+        nx = len([name for name in params if name.startswith('x')]) 
+        return special.gammaln(nx+1) - nx*np.log(self.x_max)
 
     def compactify(self, dt):
         """
@@ -370,7 +376,7 @@ class SplineFit(Fit):
         --------
         Fit
         """
-        start_penalizing = 200
+        start_penalizing = 0.8*_MAX_LOG
         full_penalty = _MAX_LOG
         
         csp = self._params2csp(params)
@@ -489,7 +495,7 @@ class NPXFit(Fit): # NPX = Noise + Powerlaw + X (i.e. spline)
         for i in range(self.n+1):
             self.parameters[f"x{i}"] = Parameter((0, self.x_max),
                                                  linearization=Linearize.Bounded())
-            self.parameters[f"y{i}"] = Parameter((-np.inf, _MAX_LOG),
+            self.parameters[f"y{i}"] = Parameter((-_MAX_LOG, _MAX_LOG),
                                                  linearization=Linearize.Exponential())
 
         # For the spline, y0 and xn are fixed
@@ -509,6 +515,11 @@ class NPXFit(Fit): # NPX = Noise + Powerlaw + X (i.e. spline)
 
             del self.parameters[name]
 
+        self.improper_priors = [name for name in self.parameters
+                                if name.startswith('log(')
+                                or name.startswith('y')
+                                ]
+
         # Set up constraints
         self.constraints = [self.constraint_dx,
                             self.constraint_logmsd,
@@ -520,6 +531,11 @@ class NPXFit(Fit): # NPX = Noise + Powerlaw + X (i.e. spline)
         self.prev_fit = previous_NPXFit_and_result # for (alternative) initialization
         if self.prev_fit is not None and not self.prev_fit[0].d == self.d:
             raise ValueError(f"Previous NPXFit has different number of dimensions ({self.prev_fit[0].d}) from the current data set ({self.d}).")
+
+    def logprior(self, params):
+        nx = len([name for name in params if name.startswith('x')]) 
+        na = len([name for name in params if name.startswith('α')]) 
+        return special.gammaln(nx+1) - nx*np.log(self.x_max) - na*np.log(2)
 
     def compactify(self, dt):
         """
@@ -719,8 +735,22 @@ class NPXFit(Fit): # NPX = Noise + Powerlaw + X (i.e. spline)
                         logG  = res['params'][f"log(Γ) (dim {dim})"]
                         alpha = res['params'][     f"α (dim {dim})"]
 
-                        x_init = np.linspace(0.5, self.x_max, self.n+1)
-                        y_init = alpha*self.decompactify_log(x_init) + logG
+                        # Same as initializing from an L2 line fit below
+                        x0, logt0, y0, dcdx0 = self._first_spline_point(0.5, logG, alpha)
+                        x_init = np.linspace(x0, self.x_max, self.n+1)
+
+                        if self.ss_order < 1:
+                            # interpolate along 2-point spline
+                            ss_var = np.nanmean(np.concatenate([np.sum(traj[:]**2, axis=1) for traj in self.data]))/self.d
+                            csp = interpolate.CubicSpline(np.array([x0, 2]),
+                                                          np.array([y0, np.log(2*ss_var)]),
+                                                          bc_type = ((1, dcdx0), (1, 0.)),
+                                                         )
+                            y_init = csp(x_init)
+                        elif self.ss_order == 1:
+                            y_init = alpha*self.decompactify_log(x_init) + logG
+                        else: # pragma: no cover
+                            raise ValueError
                     else:
                         x0 = res['params'][f"x0 (dim {dim})"]
                         x_init = np.linspace(x0, self.x_max, self.n+1)
@@ -828,7 +858,7 @@ class NPXFit(Fit): # NPX = Noise + Powerlaw + X (i.e. spline)
         Fit
         """
         # constraints are not applied if n == 0, so we can safely assume n > 0
-        start_penalizing = 200
+        start_penalizing = 0.8*_MAX_LOG
         full_penalty = _MAX_LOG
 
         csps = self._params2csp(params)
@@ -881,7 +911,14 @@ class TwoLocusRouseFit(Fit):
                 if name != 'log(σ²)' and dim > 0:
                     self.parameters[dim_name].fix_to = f"{name} (dim 0)"
 
+        self.improper_priors = [name for name in self.parameters
+                                if name.startswith('log(') # that's all of them
+                                ]
+
         self.constraints = [] # Don't need to check Cpositive, will always be true for Rouse MSDs
+
+    def logprior(self, params):
+        return 0 # all priors are improper
         
     def params2msdm(self, params):
         """
@@ -1007,8 +1044,15 @@ class DiscreteRouseFit(Fit):
                 if name != 'log(σ²)' and dim > 0:
                     self.parameters[dim_name].fix_to = f"{name} (dim 0)"
 
+        self.improper_priors = [name for name in self.parameters
+                                if name.startswith('log(') # that's all of them
+                                ]
+
         self.constraints = [] # Don't need to check Cpositive, will always be true for Rouse MSDs
         
+    def logprior(self, params):
+        return 0 # all priors are improper
+
     def params2msdm(self, params):
         msdm = []
         for dim in range(self.d):
