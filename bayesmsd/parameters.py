@@ -43,7 +43,7 @@ class Parameter():
                  linearization=None,
                  max_linearization_moves=(10, 10),
                  ):
-        self.bounds = np.array(bounds)
+        self.bounds = np.array(bounds, dtype=float)
         self.fix_to = fix_to
 
         if linearization is None:
