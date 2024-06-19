@@ -480,7 +480,7 @@ class NPXFit(Fit): # NPX = Noise + Powerlaw + X (i.e. spline)
         self.parameters = {
             'log(σ²)' : Parameter((-np.inf, _MAX_LOG),
                                   linearization=Linearize.Exponential()),
-            'log(Γ)'  : Parameter((-np.inf, _MAX_LOG),
+            'log(Γ)'  : Parameter((-_MAX_LOG, _MAX_LOG),
                                   linearization=Linearize.Exponential()),
             'α'       : Parameter((0.01, 1.99), # stay away from bounds, since covariance becomes singular, leading to numerical issues when getting close
                                   linearization=Linearize.Bounded()),
@@ -873,9 +873,11 @@ class TwoLocusRouseFit(Fit):
         for name in ['log(σ²)', 'log(Γ)', 'log(J)']:
             for dim in range(self.d):
                 dim_name = f"{name} (dim {dim})"
-                self.parameters[f"{name} (dim {dim})"] = Parameter((-np.inf, _MAX_LOG),
-                                                                   linearization=Linearize.Exponential())
+                self.parameters[dim_name] = Parameter((-_MAX_LOG, _MAX_LOG),
+                                                      linearization=Linearize.Exponential())
 
+                if name == 'log(σ²)':
+                    self.parameters[dim_name].bounds[0] = -np.inf
                 if name != 'log(σ²)' and dim > 0:
                     self.parameters[dim_name].fix_to = f"{name} (dim 0)"
 
@@ -997,9 +999,11 @@ class DiscreteRouseFit(Fit):
         for name in ['log(σ²)', 'log(D)', 'log(Γ)']:
             for dim in range(self.d):
                 dim_name = f"{name} (dim {dim})"
-                self.parameters[f"{name} (dim {dim})"] = Parameter((-np.inf, _MAX_LOG), 
-                                                                   linearization=Linearize.Exponential())
+                self.parameters[dim_name] = Parameter((-_MAX_LOG, _MAX_LOG),
+                                                      linearization=Linearize.Exponential())
 
+                if name == 'log(σ²)':
+                    self.parameters[dim_name].bounds[0] = -np.inf
                 if name != 'log(σ²)' and dim > 0:
                     self.parameters[dim_name].fix_to = f"{name} (dim 0)"
 
