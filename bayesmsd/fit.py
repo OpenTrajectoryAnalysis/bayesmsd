@@ -924,7 +924,7 @@ msdfun(dt,
         neg_logL = self.MinTarget(self)
         def log_likelihood(x):
             if np.any(np.isnan(x)):
-                return -np.inf # pragma: no cover
+                return -self.max_penalty
 
             params = neg_logL.params_array2dict(len(names)*[None])
             params |= dict(zip(names, x))

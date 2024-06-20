@@ -3,6 +3,7 @@ try: # prevent any plotting
     del os.environ['DISPLAY']
 except KeyError:
     pass
+os.environ['OMP_NUM_THREADS'] = '1'
 
 import numpy as np
 np.seterr(all='raise') # pay attention to details
@@ -273,6 +274,11 @@ class TestRouseLoci(myTestCase):
         fit.parameters['log(σ²) (dim 0)'].fix_to = -np.inf
         ev = fit.evidence()
 
+    def testEvidence_3D(self):
+        fit = bayesmsd.lib.TwoLocusRouseFit([self.data[0]])
+        fit.parameters['log(σ²) (dim 0)'].fix_to = -np.inf
+        ev = fit.evidence()
+
     @patch('builtins.print')
     def testNPX(self, mock_print):
         fit = bayesmsd.lib.NPXFit(self.data, ss_order=0.5, n=1)
@@ -389,7 +395,10 @@ class TestProfiler(myTestCase):
                 # this will still fail, because the simplex also can't work
                 # with maxfev=1
                 with self.assertRaises(RuntimeError):
-                    profiler.run_fit(init_from=profiler.point_estimate, maxfev=1)
+                    pe = profiler.point_estimate
+                    pe['params']['y1'] -= 1 # ensure that gradient fit does not just converge
+                                            # after first evaluation
+                    profiler.run_fit(init_from=pe, maxfev=1)
 
                 # conditional
                 profiler = bayesmsd.Profiler(self.fit, profiling=False, verbosity=3)
