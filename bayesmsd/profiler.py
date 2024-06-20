@@ -448,6 +448,7 @@ class Profiler():
             self.run_fit(init_from = init_from,
                          fix_values = {self.cur_param : value},
                          is_new_point_estimate = False,
+                         adjust_prior_for_fixed_values = False,
                         )
         else:
             new_params = deepcopy(self.point_estimate['params'])

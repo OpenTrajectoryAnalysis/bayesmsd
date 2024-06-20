@@ -490,6 +490,9 @@ msdfun(dt,
             ``fit.parameters[...].fix_to``.
         offset : float
             the global offset to subtract; see Notes section of `Fit`.
+        adjust_prior_for_fixed_values : bool
+            if ``False``, pretend that the parameters in `fix_values` are still
+            free. Important for the `Profiler`.
 
         Attributes
         ----------
@@ -509,7 +512,9 @@ msdfun(dt,
             likelihood). Can be used to ensure that the minimum value of the
             target is close to 0.
         """
-        def __init__(self, fit, fix_values=None, offset=0):
+        def __init__(self, fit, fix_values=None, offset=0,
+                     adjust_prior_for_fixed_values=True,
+                     ):
             self.fit = fit
 
             # See class docstring
@@ -519,6 +524,10 @@ msdfun(dt,
             self.param_names                 = fv[2]
 
             self.offset = offset
+            
+            self.paramnames_prior = self.param_names
+            if not adjust_prior_for_fixed_values:
+                self.paramnames_prior += list(fix_values.keys())
 
         def params_array2dict(self, params_array):
             """
@@ -578,7 +587,7 @@ msdfun(dt,
             float
             """
             params = self.params_array2dict(params_array)
-            params_free = {name : params[name] for name in self.param_names}
+            params_prior = {name : params[name] for name in self.paramnames_prior}
 
             penalty = self.fit._penalty(params)
             if penalty < 0: # infeasible
@@ -588,7 +597,7 @@ msdfun(dt,
                                    self.fit.ss_order,
                                    self.fit.params2msdm(params),
                                   ) \
-                       - self.fit.logprior(params_free) \
+                       - self.fit.logprior(params_prior) \
                        + penalty \
                        - self.offset
 
@@ -598,6 +607,7 @@ msdfun(dt,
             optimization_steps=('simplex',),
             maxfev=None,
             fix_values = None,
+            adjust_prior_for_fixed_values=True,
             full_output=False,
             show_progress=False,
            ):
@@ -621,6 +631,12 @@ msdfun(dt,
         fix_values : dict
             can be used to keep some parameter values fixed or express them as
             function of the other parameters. See class doc for more details.
+        adjust_prior_for_fixed_values : bool
+            whether to evaluate the model prior for the restricted parameter
+            space resulting from `fix_values` or over the full parameter space.
+            While the former is "correct" in most cases, the latter is
+            important if we want to explore the likelihood landscape around a
+            previously found optimum, as the `Profiler` does.
         full_output : bool
             Set to ``True`` to return the output dict (c.f. Returns) and the
             full output from ``scipy.optimize.minimize`` for each optimization
@@ -657,7 +673,9 @@ msdfun(dt,
 
         # Set up the minimization target
         # also allows us to convert initial_params to appropriate array
-        min_target = self.MinTarget(self, fix_values, initial_offset)
+        min_target = self.MinTarget(self, fix_values, initial_offset,
+                                    adjust_prior_for_fixed_values,
+                                    )
 
         p0 = min_target.params_dict2array(initial_params)
         bounds = [self.parameters[name].bounds for name in min_target.param_names]
