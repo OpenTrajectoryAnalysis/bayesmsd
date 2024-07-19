@@ -121,6 +121,23 @@ class GP: # just a namespace
             for dim, (msd, m) in enumerate(msd_ms):
                 array_msd_ms[dim][0] = np.append(array_msd_ms[dim][0], msd(np.inf))
 
+                if ss_order == 0.5 and array_msd_ms[dim][0][-1] > 1e10*array_msd_ms[dim][0][1]:
+                    # Numerical issues with dynamic range
+                    # If the plateau for a level 0 MSD is way higher than the
+                    # first point, the covariance matrix will be basically flat
+                    # (at the plateau value), with minor modulations (on the
+                    # order of the first MSD point); this gets hard to
+                    # represent accurately numerically and thus leads to
+                    # BadCovarianceErrors. For ss_order = 0 this is fine,
+                    # because it just gives a flat covariance, which is fine.
+                    # For ss_order = 0.5, however, we will subtract that large
+                    # base value and thus need the modulations to be precise;
+                    # but this also means that we don't care much about where
+                    # exactly the plateau is in the first place. So: if the
+                    # dynamic range gets too big and ss_order == 0.5, just trim
+                    # it down.
+                    array_msd_ms[dim][0][-1] = 1e10*array_msd_ms[dim][0][1]
+
         job_iter = itertools.chain.from_iterable((itertools.product((traj[:][:, dim] for traj in data),
                                                                     [ss_order], [msd], [m],
                                                                    )
