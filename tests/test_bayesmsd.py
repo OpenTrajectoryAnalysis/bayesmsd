@@ -269,6 +269,17 @@ class TestRouseLoci(myTestCase):
         self.assertSetEqual(set(fit.independent_parameters()),
                             {'log(Γ) (dim 0)', 'log(J) (dim 0)'})
 
+    def testSS05trimming(self):
+        fit = bayesmsd.lib.TwoLocusRouseFit(self.data)
+        fit.ss_order = 0.5
+        res = fit.run()
+
+        res['params']['log(J) (dim 0)'] = 100
+        target = fit.MinTarget(fit)
+        logL = target(target.params_dict2array(res['params']))
+
+        self.assertTrue(np.isfinite(logL))
+
     def testEvidence(self):
         fit = bayesmsd.lib.TwoLocusRouseFit([self.data[0].dims([0])])
         fit.parameters['log(σ²) (dim 0)'].fix_to = -np.inf
