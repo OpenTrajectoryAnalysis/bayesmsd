@@ -180,6 +180,9 @@ class TestDiffusive(myTestCase):
     def test_penalty(self):
         fit = bayesmsd.lib.NPXFit(self.data, ss_order=1)
         params = {
+            'm1 (dim 0)'      : 0,
+            'm1 (dim 1)'      : 0,
+            'm1 (dim 2)'      : 0,
             'log(σ²) (dim 0)' : 0,
             'log(σ²) (dim 1)' : 0,
             'log(σ²) (dim 2)' : 0,
@@ -476,12 +479,15 @@ class TestRandomStuff(myTestCase):
             'log(σ²) (dim 0)' : -np.inf,
              'log(Γ) (dim 0)' : 0.387,
                   'α (dim 0)' : 0.89,
+                 'm1 (dim 0)' : 0.54,
             'log(σ²) (dim 1)' : -np.inf,
              'log(Γ) (dim 1)' : 0.387,
                   'α (dim 1)' : 0.89,
+                 'm1 (dim 1)' : 0.54,
             'log(σ²) (dim 2)' : -np.inf,
              'log(Γ) (dim 2)' : 0.387,
                   'α (dim 2)' : 0.89,
+                 'm1 (dim 2)' : 0.54,
         }
 
         msd = fit.MSD(params)
@@ -493,6 +499,7 @@ class TestRandomStuff(myTestCase):
         dt = np.arange(1, 10)
         logG  = params['log(Γ) (dim 0)']
         alpha = params[     'α (dim 0)']
+        m     = params[    'm1 (dim 0)']
         self.assert_array_almost_equal(msd(dt), data[0].d*np.exp(alpha*np.log(dt) + logG))
         self.assert_array_almost_equal(msd(dt), fit.MSD(params, dt))
 
@@ -503,12 +510,15 @@ class TestRandomStuff(myTestCase):
             'log(σ²) (dim 0)' : -np.inf,
              'log(Γ) (dim 0)' : 0.387,
                   'α (dim 0)' : 0.89,
+                 'm1 (dim 0)' : 0.54,
             'log(σ²) (dim 1)' : -np.inf,
              'log(Γ) (dim 1)' : 0.387,
                   'α (dim 1)' : 0.89,
+                 'm1 (dim 1)' : 0.54,
             'log(σ²) (dim 2)' : -np.inf,
              'log(Γ) (dim 2)' : 0.387,
                   'α (dim 2)' : 0.89,
+                 'm1 (dim 2)' : 0.54,
         }
 
         data_sample = bayesmsd.gp.generate((fit, dict(params=params)), 10, n=2)
@@ -521,6 +531,7 @@ class TestRandomStuff(myTestCase):
         params = {'log(σ²)' : -np.inf,
                   'log(Γ)' : 0.387, 'α' : 0.89,
                   'x0' : 0.5, 'y1' : 1,
+                  'm1' : 0,
                   }
         for name in list(params.keys()):
             params.update({f"{name} (dim {dim})" : params[name] for dim in range(fit.d)})
@@ -531,6 +542,7 @@ class TestRandomStuff(myTestCase):
         params = {'log(σ²)' : -np.inf,
                   'log(Γ)' : 0.,
                   'log(J)' : 1.,
+                  'm1' : 0,
                   }
         for name in list(params.keys()):
             params.update({f"{name} (dim {dim})" : params[name] for dim in range(fit.d)})
