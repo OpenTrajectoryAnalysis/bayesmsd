@@ -702,7 +702,7 @@ class NPXFit(Fit): # NPX = Noise + Powerlaw + X (i.e. spline)
             msd = deco.imaging(noise2=noise2, f=self.motion_blur_f, alpha0=alpha)(msd)
             msd = deco.MSDfun(msd)
 
-            msdm.append((msd, 0))
+            msdm.append((msd, params[f'm1 (dim {dim})']))
         return msdm
             
     def initial_params(self):
@@ -901,7 +901,6 @@ class TwoLocusRouseFit(Fit):
         
         self.ss_order = 0
         
-        self.parameters = {}
         for name in ['log(σ²)', 'log(Γ)', 'log(J)']:
             for dim in range(self.d):
                 dim_name = f"{name} (dim {dim})"
@@ -950,7 +949,7 @@ class TwoLocusRouseFit(Fit):
             def msd(dt, G=G, J=J):
                 return rouse.twoLocusMSD(dt, G, J)
 
-            msdm.append((msd, 0))
+            msdm.append((msd, params[f'm1 (dim {dim})']))
         return msdm
         
     def initial_params(self):
