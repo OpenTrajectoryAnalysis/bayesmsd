@@ -1,5 +1,5 @@
 [build-system]
-requires = ["setuptools", "wheel", "numpy>=1.20"]
+requires = ["setuptools", "wheel", "numpy>=1.20,<2"]
 build-backend = "setuptools.build_meta"
 
 [project]
@@ -20,9 +20,10 @@ classifiers = [
 dependencies = [
     "noctiluca >=0",
     "rouse >=0",
-    "numpy >=1.20",
+    "numpy >=1.20,<2",
     "scipy >=1.7",
     "tqdm >=4",
+    "matplotlib >=3.4",
 ]
 
 [project.urls]

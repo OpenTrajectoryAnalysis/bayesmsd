@@ -12,8 +12,11 @@ MODULE = bayesmsd
 CYTHONSRCDIR = bayesmsd/src
 CYTHONBINDIR = bayesmsd/bin
 CYTHONYELLOWDIR = doc/cython_yellow
+TESTINSTALLDIR = $(TESTDIR)/installation
+TESTINSTALLVENV = testinstall
+TESTINSTALLPYTHON = PYTHONPATH= ./$(TESTINSTALLDIR)/$(TESTINSTALLVENV)/bin/python3
 
-.PHONY : setup recompile yellow build pre-docs docs tests all clean mydocs mytests myall myclean
+.PHONY : setup recompile yellow build pre-docs docs tests testinstall all clean mydocs mytests myall myclean
 
 setup :
 	mkdir -p $(COVERAGEREPDIR) $(DISTDIR) $(CYTHONBINDIR) $(CYTHONYELLOWDIR)
@@ -23,7 +26,6 @@ setup :
 all : docs tests build
 
 bayesmsd/src/*.c : bayesmsd/src/*.pyx
-	-@rm $(CYTHONSRCDIR)/*.c
 	CYTHONIZE=1 python3 setup.py build_ext --inplace
 
 recompile : bayesmsd/src/*.c
@@ -60,6 +62,15 @@ tests : recompile
 	@mv $(TESTDIR)/.coverage .
 	coverage html -d $(COVERAGEREPDIR) $(COVERAGEREPFLAGS)
 	coverage report --skip-covered $(COVERAGEREPFLAGS)
+
+testinstall :
+	mkdir -p $(TESTINSTALLDIR)
+	rm -r $(TESTINSTALLDIR)/*
+	cd $(TESTINSTALLDIR) && python3 -m venv --clear $(TESTINSTALLVENV)
+	$(TESTINSTALLPYTHON) -m pip install --upgrade pip setuptools build
+	$(TESTINSTALLPYTHON) -m build -o $(TESTINSTALLDIR)/dist
+	$(TESTINSTALLPYTHON) -m pip install $(TESTINSTALLDIR)/dist/$(MODULE)-*.whl
+	$(TESTINSTALLPYTHON) -c "import bayesmsd"
 
 clean :
 	-rm -r $(SPHINXBUILD)/*

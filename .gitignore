@@ -4,6 +4,7 @@ doc/sphinx/source/examples
 doc/sphinx/source/examples.rst
 doc/cython_yellow
 tests/coverage
+tests/installation
 dist/
 build/
 *.egg-info
