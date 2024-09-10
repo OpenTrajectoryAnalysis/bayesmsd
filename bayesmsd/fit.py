@@ -18,6 +18,7 @@ from noctiluca import make_TaggedSet
 from .gp import GP, msd2C_fun
 from .deco import method_verbosity_patch
 from .profiler import Profiler
+from .parameters import Parameter, Linearize
 
 class Fit(metaclass=ABCMeta):
     """
@@ -59,7 +60,10 @@ class Fit(metaclass=ABCMeta):
     parameters : dict
         the parameters for this fit. Each entry should carry a sensible name
         and be an instance of `bayesmsd.Parameter
-        <bayesmsd.parameters.Parameter>`.
+        <bayesmsd.parameters.Parameter>`. By default, this is populated with a
+        parameter ``m1`` for each dimension, which is fixed to 0. This can be
+        used for the first moment (mean/drift) in the fits, or
+        removed/overridden.
     constraints : list of constraint functions
         allows to specify constraints on the parameters that will be
         implemented as smooth penalty on the likelihood. Can also take care of
@@ -124,6 +128,13 @@ class Fit(metaclass=ABCMeta):
     also exposed to the end user, who can overwrite the ``initial_offset``
     method to give a non-zero offset together with the initial values provided
     via `initial_params`.
+
+    The rationale for pre-populating `!parameters` with the first moment
+    parameters is that these are rarely interesting when writing a new fit, so
+    wouldn't be implemented by a lazy developer (yours truly) by default. Just
+    carrying them through, however, is completely trivial and exposes the trend
+    fitting functionality to the end user by simply "unfixing" the
+    corresponding parameters (i.e. setting ``.fix_to = None``).
     """
     def __init__(self, data):
         self.data = make_TaggedSet(data)
@@ -133,8 +144,13 @@ class Fit(metaclass=ABCMeta):
 
         # Fit properties
         self.ss_order = None
-        self.parameters = {} # should be dict of parameters.Parameter instances
-        # `params` arguments will then be dicts as well
+        self.parameters = {f'm1 (dim {dim})' : Parameter((-np.inf, np.inf),
+                                                         linearization=Linearize.Exponential(),
+                                                         fix_to=0,
+                                                         )
+                           for dim in range(self.d)
+                           } # to be extended / modified when subclassing
+        # `params` arguments to `params2msdm` (and others) will be dict with same keys
 
         # Each constraint should be a callable constr(params) -> x. We will apply:
         #   x <= 0                : infeasible. Maximum penalization
@@ -279,7 +295,7 @@ class Fit(metaclass=ABCMeta):
 
     def MSD(self, params, dt=None):
         """
-        Return the MSD evaluated at dt. Convenience function
+        Return the (trend-free) MSD evaluated at dt. Convenience function.
 
         Parameters
         ----------
@@ -296,6 +312,13 @@ class Fit(metaclass=ABCMeta):
         -------
         callable or np.array
             the MSD function (summed over all dimensions), evaluated at `!dt` if provided.
+
+        Notes
+        -----
+        This function returns the "trend-free" MSD; meaning we ignore potential
+        values for the mean/trend parameters `!m1`. For `!ss_order == 0` this
+        is correct behavior either way; for `!ss_order == 1` the trend term can
+        be added as ``(m1*Δt)^2``.
         """
         def msdfun(dt, params=params, **kwargs):
             msdm = self.params2msdm(params)

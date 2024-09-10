@@ -142,7 +142,7 @@ class SplineFit(Fit):
 
         # x lives in the compactified interval [0, 1] (or [0, 2]), while y =
         # log(MSD) can be any real number.
-        self.parameters = {}
+        self.parameters = {'m1' : self.parameters['m1 (dim 0)']} # trend is global, not per dimension
         for i in range(self.n):
             self.parameters[f"x{i}"] = Parameter((0, self.x_max),
                                                  linearization=Linearize.Bounded(),
@@ -256,7 +256,7 @@ class SplineFit(Fit):
                 # dt == 0 is filtered out by MSDfun
                 return np.exp(csp(self.compactify(dt))) / self.d
 
-        return self.d*[(msd, 0)]
+        return self.d*[(msd, params['m1'])]
             
     def initial_params(self):
         """
@@ -481,9 +481,9 @@ class NPXFit(Fit): # NPX = Noise + Powerlaw + X (i.e. spline)
         self.x_max = min(self.x_last, self.compactify(sys.float_info.max/2))
 
         # Set up parameters
-        # Populate with templates -> expand dimensions -> remove templates
+        # Assemble templates --> expand dimensions --> write to `self.parameters`
         # The powerlaw stops being positive definite at α = 2, so stay away from that
-        self.parameters = {
+        templates = {
             'log(σ²)' : Parameter((-np.inf, _MAX_LOG),
                                   linearization=Linearize.Exponential()),
             'log(Γ)'  : Parameter((-_MAX_LOG, _MAX_LOG),
@@ -493,27 +493,27 @@ class NPXFit(Fit): # NPX = Noise + Powerlaw + X (i.e. spline)
         }
 
         for i in range(self.n+1):
-            self.parameters[f"x{i}"] = Parameter((0, self.x_max),
-                                                 linearization=Linearize.Bounded())
-            self.parameters[f"y{i}"] = Parameter((-_MAX_LOG, _MAX_LOG),
-                                                 linearization=Linearize.Exponential())
+            templates[f"x{i}"] = Parameter((0, self.x_max),
+                                            linearization=Linearize.Bounded())
+            templates[f"y{i}"] = Parameter((-_MAX_LOG, _MAX_LOG),
+                                            linearization=Linearize.Exponential())
 
         # For the spline, y0 and xn are fixed
-        del self.parameters["y0"]
-        del self.parameters[f"x{self.n}"]
+        del templates["y0"]
+        del templates[f"x{self.n}"]
 
         # Expand dimensions and remove templates
         # Fix higher dimensions to dim 0, except for localization error
-        param_names = list(self.parameters.keys()) # keys() itself is mutable
+        param_names = list(templates.keys()) # keys() itself is mutable
         for name in param_names:
             for dim in range(self.d):
                 dim_name = f"{name} (dim {dim})"
-                self.parameters[dim_name] = deepcopy(self.parameters[name])
+                self.parameters[dim_name] = deepcopy(templates[name])
 
                 if name != 'log(σ²)' and dim > 0:
                     self.parameters[dim_name].fix_to = f"{name} (dim 0)"
 
-            del self.parameters[name]
+        del templates
 
         self.improper_priors = [name for name in self.parameters
                                 if name.startswith('log(')
@@ -702,7 +702,7 @@ class NPXFit(Fit): # NPX = Noise + Powerlaw + X (i.e. spline)
             msd = deco.imaging(noise2=noise2, f=self.motion_blur_f, alpha0=alpha)(msd)
             msd = deco.MSDfun(msd)
 
-            msdm.append((msd, 0))
+            msdm.append((msd, params[f'm1 (dim {dim})']))
         return msdm
             
     def initial_params(self):
@@ -901,7 +901,6 @@ class TwoLocusRouseFit(Fit):
         
         self.ss_order = 0
         
-        self.parameters = {}
         for name in ['log(σ²)', 'log(Γ)', 'log(J)']:
             for dim in range(self.d):
                 dim_name = f"{name} (dim {dim})"
@@ -950,7 +949,7 @@ class TwoLocusRouseFit(Fit):
             def msd(dt, G=G, J=J):
                 return rouse.twoLocusMSD(dt, G, J)
 
-            msdm.append((msd, 0))
+            msdm.append((msd, params[f'm1 (dim {dim})']))
         return msdm
         
     def initial_params(self):
@@ -1034,7 +1033,6 @@ class DiscreteRouseFit(Fit):
         
         self.ss_order = 1
         
-        self.parameters = {}
         for name in ['log(σ²)', 'log(D)', 'log(Γ)']:
             for dim in range(self.d):
                 dim_name = f"{name} (dim {dim})"
@@ -1079,7 +1077,7 @@ class DiscreteRouseFit(Fit):
                     with np.errstate(under='ignore'):
                         return 2*D*dt*( special.ive(0, k*dt) + special.ive(1, k*dt) )
 
-            msdm.append((msd, 0))
+            msdm.append((msd, params[f'm1 (dim {dim})']))
         return msdm
         
     def initial_params(self):
@@ -1131,7 +1129,10 @@ class NPFit(Fit):
         
         self.ss_order = 1
         
-        self.parameters = {
+        # Set up parameters
+        # Assemble templates --> expand dimensions --> write to `self.parameters`
+        # The powerlaw stops being positive definite at α = 2, so stay away from that
+        templates = {
             'log(σ²)' : Parameter((-np.inf, _MAX_LOG),
                                   linearization=Linearize.Exponential()),
             'log(αΓ)' : Parameter((-np.inf, _MAX_LOG),
@@ -1142,16 +1143,16 @@ class NPFit(Fit):
 
         # Expand dimensions and remove templates
         # Fix higher dimensions to dim 0, except for localization error
-        param_names = list(self.parameters.keys()) # keys() itself is mutable
+        param_names = list(templates.keys()) # keys() itself is mutable
         for name in param_names:
             for dim in range(self.d):
                 dim_name = f"{name} (dim {dim})"
-                self.parameters[dim_name] = deepcopy(self.parameters[name])
+                self.parameters[dim_name] = deepcopy(templates[name])
 
                 if name != 'log(σ²)' and dim > 0:
                     self.parameters[dim_name].fix_to = f"{name} (dim 0)"
 
-            del self.parameters[name]
+        del templates
 
         self.improper_priors = [name for name in self.parameters
                                 if name.startswith('log(')
@@ -1176,7 +1177,7 @@ class NPFit(Fit):
             def msd(dt, aG=aG, alpha=alpha):
                 return (aG/alpha)*(dt**alpha)
             
-            msdm.append((msd, 0))
+            msdm.append((msd, params[f'm1 (dim {dim})']))
             
         return msdm
     
