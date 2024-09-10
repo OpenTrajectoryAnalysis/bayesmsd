@@ -1129,7 +1129,10 @@ class NPFit(Fit):
         
         self.ss_order = 1
         
-        self.parameters = {
+        # Set up parameters
+        # Assemble templates --> expand dimensions --> write to `self.parameters`
+        # The powerlaw stops being positive definite at α = 2, so stay away from that
+        templates = {
             'log(σ²)' : Parameter((-np.inf, _MAX_LOG),
                                   linearization=Linearize.Exponential()),
             'log(αΓ)' : Parameter((-np.inf, _MAX_LOG),
@@ -1140,16 +1143,16 @@ class NPFit(Fit):
 
         # Expand dimensions and remove templates
         # Fix higher dimensions to dim 0, except for localization error
-        param_names = list(self.parameters.keys()) # keys() itself is mutable
+        param_names = list(templates.keys()) # keys() itself is mutable
         for name in param_names:
             for dim in range(self.d):
                 dim_name = f"{name} (dim {dim})"
-                self.parameters[dim_name] = deepcopy(self.parameters[name])
+                self.parameters[dim_name] = deepcopy(templates[name])
 
                 if name != 'log(σ²)' and dim > 0:
                     self.parameters[dim_name].fix_to = f"{name} (dim 0)"
 
-            del self.parameters[name]
+        del templates
 
         self.improper_priors = [name for name in self.parameters
                                 if name.startswith('log(')
@@ -1174,7 +1177,7 @@ class NPFit(Fit):
             def msd(dt, aG=aG, alpha=alpha):
                 return (aG/alpha)*(dt**alpha)
             
-            msdm.append((msd, 0))
+            msdm.append((msd, params[f'm1 (dim {dim})']))
             
         return msdm
     
