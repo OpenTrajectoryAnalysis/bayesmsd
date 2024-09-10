@@ -1033,7 +1033,6 @@ class DiscreteRouseFit(Fit):
         
         self.ss_order = 1
         
-        self.parameters = {}
         for name in ['log(σ²)', 'log(D)', 'log(Γ)']:
             for dim in range(self.d):
                 dim_name = f"{name} (dim {dim})"
@@ -1078,7 +1077,7 @@ class DiscreteRouseFit(Fit):
                     with np.errstate(under='ignore'):
                         return 2*D*dt*( special.ive(0, k*dt) + special.ive(1, k*dt) )
 
-            msdm.append((msd, 0))
+            msdm.append((msd, params[f'm1 (dim {dim})']))
         return msdm
         
     def initial_params(self):
