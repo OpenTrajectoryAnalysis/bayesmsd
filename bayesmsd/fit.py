@@ -18,6 +18,7 @@ from noctiluca import make_TaggedSet
 from .gp import GP, msd2C_fun
 from .deco import method_verbosity_patch
 from .profiler import Profiler
+from .parameters import Parameter, Linearize
 
 class Fit(metaclass=ABCMeta):
     """
@@ -133,8 +134,13 @@ class Fit(metaclass=ABCMeta):
 
         # Fit properties
         self.ss_order = None
-        self.parameters = {} # should be dict of parameters.Parameter instances
-        # `params` arguments will then be dicts as well
+        self.parameters = {f'm1 (dim {dim})' : Parameter((-np.inf, np.inf),
+                                                         linearization=Linearize.Exponential(),
+                                                         fix_to=0,
+                                                         )
+                           for dim in range(self.d)
+                           } # to be extended / modified when subclassing
+        # `params` arguments to `params2msdm` (and others) will be dict with same keys
 
         # Each constraint should be a callable constr(params) -> x. We will apply:
         #   x <= 0                : infeasible. Maximum penalization
