@@ -37,7 +37,7 @@ yellow : bayesmsd/src/*.pyx
 build : recompile
 	-@cd $(DISTDIR) && rm *
 	python3 -m build # source dist & linux wheel
-	@cd $(DISTDIR) && auditwheel repair *-linux_*.whl
+	@cd $(DISTDIR) && auditwheel repair --plat manylinux2014_x86_64 *-linux_*.whl
 	@cd $(DISTDIR) && mv wheelhouse/* . && rmdir wheelhouse
 	@cd $(DISTDIR) && rm *-linux_*.whl
 	PYTHON_ONLY=1 python3 -m build --wheel # py3-none-any wheel
