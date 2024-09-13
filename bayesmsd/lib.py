@@ -314,6 +314,7 @@ class SplineFit(Fit):
 
         out = {f"x{i}" : x for i, x in enumerate(x_init[1:-1], start=1)}
         out.update({f"y{i}" : y for i, y in enumerate(y_init)})
+        out["m1"] = 0 # there might be more sensible things to do here
         return out
 
     def initial_offset(self):
@@ -728,7 +729,7 @@ class NPXFit(Fit): # NPX = Noise + Powerlaw + X (i.e. spline)
             csps = fit._params2csp(res['params'])
 
             for dim in range(self.d):
-                for name in ['log(σ²)', 'log(Γ)', 'α']:
+                for name in ['log(σ²)', 'log(Γ)', 'α', 'm1']:
                     params[f"{name} (dim {dim})"] = res['params'][f"{name} (dim {dim})"]
 
                 if self.n > 0:
@@ -799,6 +800,13 @@ class NPXFit(Fit): # NPX = Noise + Powerlaw + X (i.e. spline)
                 for dim in range(self.d):
                     params.update({f"x{i} (dim {dim})" : x for i, x in enumerate(x_init[:-1])})
                     params.update({f"y{i} (dim {dim})" : y for i, y in enumerate(y_init[1:], start=1)})
+
+            if self.ss_order == 1:
+                m1s = np.mean(np.concatenate([traj.diff()[:] for traj in self.data]), axis=0)
+                params.update({f"m1 (dim {dim})" : m1 for dim, m1 in enumerate(m1s)})
+            else:
+                m1s = np.mean(np.concatenate([traj[:] for traj in self.data]), axis=0)
+                params.update({f"m1 (dim {dim})" : m1 for dim, m1 in enumerate(m1s)})
 
         return params
 
@@ -974,6 +982,9 @@ class TwoLocusRouseFit(Fit):
             params[ f"log(Γ) (dim {dim})"] = np.log(G)
             params[ f"log(J) (dim {dim})"] = np.log(J)
 
+        m1s = np.mean(np.concatenate([traj[:] for traj in self.data]), axis=0)
+        params.update({f"m1 (dim {dim})" : m1 for dim, m1 in enumerate(m1s)})
+
         return params
 
 class DiscreteRouseFit(Fit):
@@ -1102,6 +1113,9 @@ class DiscreteRouseFit(Fit):
             params[ f"log(D) (dim {dim})"] = np.log(D)
             params[ f"log(Γ) (dim {dim})"] = np.log(G)
 
+        m1s = np.mean(np.concatenate([traj.diff()[:] for traj in self.data]), axis=0)
+        params.update({f"m1 (dim {dim})" : m1 for dim, m1 in enumerate(m1s)})
+
         return params
 
 class NPFit(Fit):
@@ -1200,5 +1214,8 @@ class NPFit(Fit):
             params[f"log(σ²) (dim {dim})"] = logs2
             params[f"log(αΓ) (dim {dim})"] = logG + np.log(alpha)
             params[      f"α (dim {dim})"] = alpha
+
+        m1s = np.mean(np.concatenate([traj.diff()[:] for traj in self.data]), axis=0)
+        params.update({f"m1 (dim {dim})" : m1 for dim, m1 in enumerate(m1s)})
 
         return params

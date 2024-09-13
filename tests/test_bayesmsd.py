@@ -157,6 +157,7 @@ class TestDiffusive(myTestCase):
 
     def testNP(self):
         fit = bayesmsd.lib.NPFit(self.data)
+        fit.parameters['m1 (dim 0)'].fix_to = None # also fit the trend
         res = fit.run()
 
     def test_python_vs_cython_logLs(self):
