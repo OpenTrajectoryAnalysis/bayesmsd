@@ -60,7 +60,7 @@ build : $(CYTHONSRCDIR)/*.c $(MODULE)/*.py
 	-rm -r $(DISTDIR)/*
 	$(PYTHON) -m venv --clear $(BUILDVENV)
 	$(BUILDPYTHON) -m pip install --upgrade pip setuptools
-	$(BUILDPYTHON) -m pip install --upgrade build auditwheel
+	$(BUILDPYTHON) -m pip install --upgrade build auditwheel patchelf
 
 	# make python-only fall-back
 	PYTHON_ONLY=1 $(BUILDPYTHON) -m build --wheel

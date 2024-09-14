@@ -802,10 +802,16 @@ class NPXFit(Fit): # NPX = Noise + Powerlaw + X (i.e. spline)
                     params.update({f"y{i} (dim {dim})" : y for i, y in enumerate(y_init[1:], start=1)})
 
             if self.ss_order == 1:
-                m1s = np.mean(np.concatenate([traj.diff()[:] for traj in self.data]), axis=0)
+                m1s = []
+                for traj in self.data:
+                    ind = ~np.isnan(traj.abs()[:][:, 0])
+                    dx = np.diff(traj[ind], axis=0)
+                    dt = np.diff(np.nonzero(ind)[0])
+                    m1s.append(dx/dt[:, None])
+                m1s = np.mean(np.concatenate(m1s), axis=0)
                 params.update({f"m1 (dim {dim})" : m1 for dim, m1 in enumerate(m1s)})
             else:
-                m1s = np.mean(np.concatenate([traj[:] for traj in self.data]), axis=0)
+                m1s = np.nanmean(np.concatenate([traj[:] for traj in self.data]), axis=0)
                 params.update({f"m1 (dim {dim})" : m1 for dim, m1 in enumerate(m1s)})
 
         return params
@@ -982,7 +988,7 @@ class TwoLocusRouseFit(Fit):
             params[ f"log(Γ) (dim {dim})"] = np.log(G)
             params[ f"log(J) (dim {dim})"] = np.log(J)
 
-        m1s = np.mean(np.concatenate([traj[:] for traj in self.data]), axis=0)
+        m1s = np.nanmean(np.concatenate([traj[:] for traj in self.data]), axis=0)
         params.update({f"m1 (dim {dim})" : m1 for dim, m1 in enumerate(m1s)})
 
         return params
@@ -1113,7 +1119,7 @@ class DiscreteRouseFit(Fit):
             params[ f"log(D) (dim {dim})"] = np.log(D)
             params[ f"log(Γ) (dim {dim})"] = np.log(G)
 
-        m1s = np.mean(np.concatenate([traj.diff()[:] for traj in self.data]), axis=0)
+        m1s = np.nanmean(np.concatenate([traj.diff()[:] for traj in self.data]), axis=0)
         params.update({f"m1 (dim {dim})" : m1 for dim, m1 in enumerate(m1s)})
 
         return params
@@ -1215,7 +1221,13 @@ class NPFit(Fit):
             params[f"log(αΓ) (dim {dim})"] = logG + np.log(alpha)
             params[      f"α (dim {dim})"] = alpha
 
-        m1s = np.mean(np.concatenate([traj.diff()[:] for traj in self.data]), axis=0)
+        m1s = []
+        for traj in self.data:
+            ind = ~np.isnan(traj.abs()[:][:, 0])
+            dx = np.diff(traj[ind], axis=0)
+            dt = np.diff(np.nonzero(ind)[0])
+            m1s.append(dx/dt[:, None])
+        m1s = np.mean(np.concatenate(m1s), axis=0)
         params.update({f"m1 (dim {dim})" : m1 for dim, m1 in enumerate(m1s)})
 
         return params
