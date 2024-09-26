@@ -291,7 +291,7 @@ class SplineFit(Fit):
             # For ss_order < 1 we will use it as boundary condition,
             # for ss_order == 1 this will be the initial MSD
             e_msd = MSD(self.data)
-            dt_valid = np.nonzero(~np.isnan(e_msd))[0][1:] # skip msd[0] = 0
+            dt_valid = np.nonzero(np.isfinite(e_msd) & (e_msd > 0))[0]
             (A, B), _ = optimize.curve_fit(lambda x, A, B : A*x + B,
                                            self.compactify(dt_valid),
                                            np.log(e_msd[dt_valid]),
@@ -767,7 +767,7 @@ class NPXFit(Fit): # NPX = Noise + Powerlaw + X (i.e. spline)
             # For ss_order < 1 we will use it as boundary condition,
             # for ss_order == 1 this will be the initial MSD
             e_msd = MSD(self.data)/self.d
-            dt_valid = np.nonzero(~np.isnan(e_msd))[0][1:]
+            dt_valid = np.nonzero(np.isfinite(e_msd) & (e_msd > 0))[0]
             (alpha, logG), _ = optimize.curve_fit(lambda x, alpha, logG : alpha*x + logG,
                                                   np.log(dt_valid),
                                                   np.log(e_msd[dt_valid]),
@@ -975,7 +975,7 @@ class TwoLocusRouseFit(Fit):
         params : dict
         """
         e_msd = MSD(self.data) / self.d
-        dt_valid = np.nonzero(~np.isnan(e_msd))[0][1:]
+        dt_valid = np.nonzero(np.isfinite(e_msd) & (e_msd > 0))[0]
         dt_valid_early = dt_valid[:min(5, len(dt_valid))]
 
         J = np.nanmean(np.concatenate([traj[:]**2 for traj in self.data], axis=0))
@@ -1106,7 +1106,7 @@ class DiscreteRouseFit(Fit):
         params : dict
         """
         e_msd = MSD(self.data) / self.d
-        dt_valid = np.nonzero(~np.isnan(e_msd))[0][1:]
+        dt_valid = np.nonzero(np.isfinite(e_msd) & (e_msd > 0))[0]
         dt_valid_early = dt_valid[:min(5, len(dt_valid))]
 
         D = np.nanmean(e_msd[dt_valid_early]/dt_valid_early)
@@ -1205,7 +1205,7 @@ class NPFit(Fit):
         params = {}
         
         e_msd = MSD(self.data)/self.d
-        dt_valid = np.nonzero(~np.isnan(e_msd))[0][1:]
+        dt_valid = np.nonzero(np.isfinite(e_msd) & (e_msd > 0))[0]
         (alpha, logG), _ = optimize.curve_fit(lambda x, alpha, logG : alpha*x + logG,
                                               np.log(dt_valid),
                                               np.log(e_msd[dt_valid]),
