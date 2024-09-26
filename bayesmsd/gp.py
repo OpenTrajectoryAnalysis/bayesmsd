@@ -112,39 +112,49 @@ class GP: # just a namespace
         d = data.map_unique(lambda traj : traj.d)
         if len(msd_ms) != d: # pragma: no cover
             raise ValueError(f"Dimensionality of MSD ({len(msd_ms)}) != dimensionality of data ({d})")
-            
-        # Convert msd to array, such that parallelization works
-        Tmax = max(map(len, data))
-        dt = np.arange(Tmax)
-        array_msd_ms = [[msd(dt), m] for msd, m in msd_ms]
-        if ss_order < 1:
-            for dim, (msd, m) in enumerate(msd_ms):
-                array_msd_ms[dim][0] = np.append(array_msd_ms[dim][0], msd(np.inf))
 
-                if ss_order == 0.5 and array_msd_ms[dim][0][-1] > 1e10*array_msd_ms[dim][0][1]:
-                    # Numerical issues with dynamic range
-                    # If the plateau for a level 0 MSD is way higher than the
-                    # first point, the covariance matrix will be basically flat
-                    # (at the plateau value), with minor modulations (on the
-                    # order of the first MSD point); this gets hard to
-                    # represent accurately numerically and thus leads to
-                    # BadCovarianceErrors. For ss_order = 0 this is fine,
-                    # because it just gives a flat covariance, which is fine.
-                    # For ss_order = 0.5, however, we will subtract that large
-                    # base value and thus need the modulations to be precise;
-                    # but this also means that we don't care much about where
-                    # exactly the plateau is in the first place. So: if the
-                    # dynamic range gets too big and ss_order == 0.5, just trim
-                    # it down.
-                    array_msd_ms[dim][0][-1] = 1e10*array_msd_ms[dim][0][1]
+        # For parallelization we need MSD as array, not callable (not pickleable)
+        # If we do this per trajectory (dimension, in fact), we can allow
+        # different time lags for different trajectories; for this, we reserve
+        # the meta entry 'Δt'; let's consider it unlikely that users would
+        # unwittingly use 'Δt' otherwise (due to unicode Δ).
+        def job_generator(data, msd_ms):
+            for traj in data:
+                try:
+                    dt = traj.meta['Δt']
+                except KeyError:
+                    dt = 1
 
-        job_iter = itertools.chain.from_iterable((itertools.product((traj[:][:, dim] for traj in data),
-                                                                    [ss_order], [msd], [m],
-                                                                   )
-                                                  for dim, (msd, m) in enumerate(array_msd_ms)
-                                                 ))
+                for dim, (msd, m) in enumerate(msd_ms):
+                    trace = traj[:][:, dim]
+
+                    if ss_order == 1:
+                        my_m = m*dt
+                        my_msd = msd(dt*np.arange(len(trace)))
+                    else: # ss_order < 1
+                        my_m = m
+                        my_msd = msd(np.append(dt*np.arange(len(trace)), np.inf))
+
+                        if ss_order == 0.5 and my_msd[-1] > 1e10*my_msd[1]:
+                            # Numerical issues with dynamic range
+                            # If the plateau for a level 0 MSD is way higher than the
+                            # first point, the covariance matrix will be basically flat
+                            # (at the plateau value), with minor modulations (on the
+                            # order of the first MSD point); this gets hard to
+                            # represent accurately numerically and thus leads to
+                            # BadCovarianceErrors. For ss_order = 0 this is fine,
+                            # because it just gives a flat covariance, which is fine.
+                            # For ss_order = 0.5, however, we will subtract that large
+                            # base value and thus need the modulations to be precise;
+                            # but this also means that we don't care much about where
+                            # exactly the plateau is in the first place. So: if the
+                            # dynamic range gets too big and ss_order == 0.5, just trim
+                            # it down.
+                            my_msd[-1] = 1e10*my_msd[1]
+
+                    yield trace, ss_order, my_msd, my_m
         
-        return np.sum(list(parallel._umap(GP._logL_for_parallelization, job_iter)))
+        return np.sum(list(parallel._umap(GP._logL_for_parallelization, job_generator(data, msd_ms))))
 
 ################## Generative model ##########################################
 
