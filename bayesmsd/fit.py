@@ -535,7 +535,7 @@ msdfun(dt,
             likelihood). Can be used to ensure that the minimum value of the
             target is close to 0.
         """
-        def __init__(self, fit, fix_values=None, offset=0,
+        def __init__(self, fit, *, fix_values=None, offset=0,
                      adjust_prior_for_fixed_values=True,
                      ):
             self.fit = fit
@@ -696,8 +696,10 @@ msdfun(dt,
 
         # Set up the minimization target
         # also allows us to convert initial_params to appropriate array
-        min_target = self.MinTarget(self, fix_values, initial_offset,
-                                    adjust_prior_for_fixed_values,
+        min_target = self.MinTarget(self,
+                                    fix_values=fix_values,
+                                    offset=initial_offset,
+                                    adjust_prior_for_fixed_values=adjust_prior_for_fixed_values,
                                     )
 
         p0 = min_target.params_dict2array(initial_params)
