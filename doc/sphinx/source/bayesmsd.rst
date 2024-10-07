@@ -24,6 +24,14 @@ bayesmsd.fit
    :undoc-members:
    :show-inheritance:
 
+bayesmsd.fitgroup
+-----------------
+
+.. automodule:: bayesmsd.fitgroup
+   :members:
+   :undoc-members:
+   :show-inheritance:
+
 bayesmsd.gp
 -----------
 

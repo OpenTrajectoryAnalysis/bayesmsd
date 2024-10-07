@@ -17,11 +17,12 @@ class FitGroup(Fit):
     localization errors associated with each data set.
 
     Usage is (hopefully) relatively intuitive:
+
     - define a few "simple" fits and collect them in a dict
     - give that dict to `!FitGroup`
-    - use the usual ``.fix_to = ...` mechanism to fix parameters in the fit group.
-      All parameters from the individual fits can be used, with their names
-      prefixed by the fit name (the key for that fit in the dict)
+    - use the usual ``.fix_to = ...`` mechanism to fix parameters in the fit
+      group.  All parameters from the individual fits can be used, with their
+      names prefixed by the fit name (the key for that fit in the dict)
     - `!FitGroup.run()` as you would `!Fit.run()`
 
     Parameters
