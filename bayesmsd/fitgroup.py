@@ -1,3 +1,5 @@
+from copy import deepcopy
+
 import numpy as np
 
 from .fit import Fit
@@ -87,15 +89,15 @@ class FitGroup(Fit):
         prefix = self.joint_param_prefix(fitname)
         if paramname.startswith(prefix):
             return paramname[len(prefix):]
-        else:
+        else: # pragma: no cover
             raise RuntimeError(f"Parameter '{paramname}' does not seem to belong to Fit '{fitname}'")
 
     ### Kill some `Fit` functionality (no well-defined MSD here) ###
 
-    def params2msdm(self, params):
+    def params2msdm(self, params): # pragma: no cover
         raise NotImplementedError
         
-    def MSD(self, params, dt):
+    def MSD(self, params, dt): # pragma: no cover
         raise NotImplementedError
 
     ### Overwrite others that can be aggregated from individual fits ###
@@ -244,7 +246,7 @@ class FitGroup(Fit):
             params_dict = self.params_array2dict(params_array)
 
             penalty = self.fit._penalty(params_dict)
-            if penalty < 0:
+            if penalty < 0: # pragma: no cover
                 return self.fit.max_penalty
             else:
                 target_values = [penalty]
@@ -257,7 +259,7 @@ class FitGroup(Fit):
 
                 target_values = np.array(target_values)
                 total = np.sum(target_values)
-                if np.any(np.append(target_values, total) > self.fit.max_penalty):
+                if np.any(np.append(target_values, total) > self.fit.max_penalty): # pragma: no cover
                     return self.max_penalty # prevent "max penalty hopping"
                 else:
                     return total - self.offset

@@ -361,7 +361,7 @@ class TestFitGroup(myTestCase):
     def setUp(self):
         def gen_msd(G=5.7, a=0.62, noise2=0, f=0, lagtime=1):
             @bayesmsd.deco.MSDfun
-            @bayesmsd.deco.imaging(noise2=noise2, f=f, alpha0=a)
+            @bayesmsd.deco.imaging(noise2=noise2, f=f/lagtime, alpha0=a)
             def msd(dt):
                 return G*(dt*lagtime)**a
             return msd
@@ -389,8 +389,8 @@ class TestFitGroup(myTestCase):
         data.makeSelection()
 
         fitgroup = bayesmsd.FitGroup(fits_dict)
-        fitgroup.parameters['b log(αΓ) (dim 0)'].fix_to = 'a log(σΓ) (dim 0)'
-        fitgroup.parameters[      'b α (dim 0)'].fix_to =       'a σ (dim 0)'
+        fitgroup.parameters['b log(αΓ) (dim 0)'].fix_to = 'a log(αΓ) (dim 0)'
+        fitgroup.parameters[      'b α (dim 0)'].fix_to =       'a α (dim 0)'
 
         self.fitgroup = fitgroup
 
@@ -400,7 +400,19 @@ class TestFitGroup(myTestCase):
 
     def test_evidence(self):
         ev = self.fitgroup.evidence()
-        print(ev)
+        self.assertTrue(np.isfinite(ev))
+    
+    def test_logprior(self):
+        params = {
+                'a log(αΓ) (dim 0)' : -10,
+                'a α (dim 0)' : 0.7,
+                }
+        pi1 = self.fitgroup.logprior(params)
+
+        params['b α (dim 0)'] = 1.3
+        pi2 = self.fitgroup.logprior(params)
+
+        self.assertGreater(pi1, pi2)
 
 class TestProfiler(myTestCase):
     # set up diffusive data set

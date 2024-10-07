@@ -616,6 +616,7 @@ msdfun(dt,
             if penalty < 0: # infeasible
                 return self.fit.max_penalty
             else:
+                self.fit.data.restoreSelection(self.fit.data_selection)
                 return -GP.ds_logL(self.fit.data,
                                    self.fit.ss_order,
                                    self.fit.params2msdm(params),
