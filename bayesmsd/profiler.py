@@ -115,8 +115,6 @@ class Profiler():
         acceptable interval corresponding to `!conf_tol`
     cur_param : str
         the name of the parameter currently being sweeped.
-    profiling : bool
-        see Parameters
     max_fit_runs : int
         see Parameters
     run_count : int
