@@ -80,7 +80,7 @@ class TestParameters(myTestCase):
     def test_parameter_and_linearization(self):
         L = bayesmsd.parameters.Linearize
 
-        param = bayesmsd.Parameter()
+        param = bayesmsd.parameters.Parameter()
         self.assert_array_equal(param.bounds, [-np.inf, np.inf])
         self.assertIs(param, param.linearization.param)
         self.assertIsInstance(param.linearization, L.Exponential)
@@ -90,7 +90,7 @@ class TestParameters(myTestCase):
             np.array([-10, -5, 0, 3, 7]),
         )
 
-        param = bayesmsd.Parameter((0, 1))
+        param = bayesmsd.parameters.Parameter((0, 1))
         self.assertIs(param, param.linearization.param)
         self.assertIsInstance(param.linearization, L.Bounded)
         self._test_linearization(param.linearization,
@@ -99,7 +99,7 @@ class TestParameters(myTestCase):
             np.array([-10, -5, 0, 3, 7]),
         )
 
-        param = bayesmsd.Parameter((1, np.inf))
+        param = bayesmsd.parameters.Parameter((1, np.inf))
         self.assertIs(param, param.linearization.param)
         self.assertIsInstance(param.linearization, L.Multiplicative)
         self._test_linearization(param.linearization,
@@ -108,7 +108,7 @@ class TestParameters(myTestCase):
             np.array([-10, -5, 0, 3, 7]),
         )
 
-        param = bayesmsd.Parameter((1, np.inf), linearization=L.Bounded)
+        param = bayesmsd.parameters.Parameter((1, np.inf), linearization=L.Bounded)
         self.assertIs(param, param.linearization.param)
 
 class TestDiffusive(myTestCase):
@@ -356,6 +356,51 @@ class TestRouseLoci(myTestCase):
 
         fit = bayesmsd.lib.DiscreteRouseFit(self.data, motion_blur_f=1., use_approx=True)
         res = fit.run()
+
+class TestFitGroup(myTestCase):
+    def setUp(self):
+        def gen_msd(G=5.7, a=0.62, noise2=0, f=0, lagtime=1):
+            @bayesmsd.deco.MSDfun
+            @bayesmsd.deco.imaging(noise2=noise2, f=f, alpha0=a)
+            def msd(dt):
+                return G*(dt*lagtime)**a
+            return msd
+
+        dt_noise_f = {
+                'a' : (10, 50, 10),
+                'b' : (1, 5, 0.1),
+                }
+
+        data = nl.TaggedSet()
+        for tag, (dt, noise, f) in dt_noise_f.items():
+            d = bayesmsd.gp.generate((gen_msd(lagtime=dt, noise2=noise, f=f), 1, 2), T=10, n=5)
+            for traj in d:
+                traj.meta['Δt'] = dt
+            d.addTags(tag)
+            data |= d
+
+        fits_dict = {}
+        for tag, (_, _, f) in dt_noise_f.items():
+            data.makeSelection(tag)
+            fit = bayesmsd.lib.NPFit(data, motion_blur_f=f)
+            fit.parameters['log(σ²) (dim 1)'].fix_to = 'log(σ²) (dim 0)'
+            fits_dict[tag] = fit
+
+        data.makeSelection()
+
+        fitgroup = bayesmsd.FitGroup(fits_dict)
+        fitgroup.parameters['b log(αΓ) (dim 0)'].fix_to = 'a log(σΓ) (dim 0)'
+        fitgroup.parameters[      'b α (dim 0)'].fix_to =       'a σ (dim 0)'
+
+        self.fitgroup = fitgroup
+
+    def test_run(self):
+        res = self.fitgroup.run()
+        self.assertEqual(res['params']['b log(αΓ) (dim 0)'], res['params']['a log(αΓ) (dim 0)'])
+
+    def test_evidence(self):
+        ev = self.fitgroup.evidence()
+        print(ev)
 
 class TestProfiler(myTestCase):
     # set up diffusive data set
