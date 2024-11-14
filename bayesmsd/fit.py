@@ -774,7 +774,7 @@ msdfun(dt,
         else:
             return all_res[-1][0]
 
-    def evidence(self,
+    def evidence(self, show_progress=False,
                  conf = 0.8,
                  conf_tol = 0.1,
                  n_cred = 10,
@@ -792,6 +792,8 @@ msdfun(dt,
 
         Parameters
         ----------
+        show_progress : bool
+            display progress bar(s)
         conf : float
             confidence level for the initial `Profiler` run. Will usually be
             some not-too-high value.
@@ -883,7 +885,7 @@ msdfun(dt,
 
         # Run profiler
         profiler = Profiler(self, profiling=False, conf=conf, conf_tol=conf_tol)
-        mci = profiler.find_MCI()
+        mci = profiler.find_MCI(show_progress=show_progress)
         assert set(mci.keys()) == set(names)
         
         # Adjust for improper priors
@@ -979,11 +981,15 @@ msdfun(dt,
             if name in impropers:
                 xi[i] = decompactify(xi[i], mci[name+'_orig'][0])
 
+        # Progress display
+        bar = tqdm(disable = not show_progress, desc='likelihood evaluations during integration')
+
         # Evaluate central grid points (those within the estimated credible interval)
         igrid = np.meshgrid(*len(xi)*[np.arange(-n_steps_per_cred, n_steps_per_cred+1)])
         ilist = np.stack([g.flatten() for g in igrid], axis=-1)
         for ind in ilist:
             logL[tuple(ind+i_center)] = log_likelihood([x[i] for x, i in zip(xi, ind+i_center)])
+            bar.update()
 
         # Iterative evaluation until we leave the maximum
         logL_max = np.max(logL)
@@ -1009,6 +1015,9 @@ msdfun(dt,
 
             for ind in ilist:
                 logL[tuple(ind)] = log_likelihood([x[i] for x, i in zip(xi, ind)])
+                bar.update()
+
+        bar.close()
 
         # Integrate likelihood to find evidence
         with np.errstate(under='ignore'):
