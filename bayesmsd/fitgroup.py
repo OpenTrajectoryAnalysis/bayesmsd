@@ -252,10 +252,15 @@ class FitGroup(Fit):
             else:
                 target_values = [penalty]
                 for fitname, target in self.mintargets.items():
-                    params_dict_fit = {self.fit.make_fit_param_name(fitname, paramname) : paramval
-                                       for paramname, paramval in params_dict.items()
-                                       if paramname.startswith(fitname)
-                                      }
+                    params_dict_fit = {}
+                    for paramname, paramval in params_dict.items():
+                        try:
+                            paramname = self.fit.make_fit_param_name(fitname, paramname)
+                        except RuntimeError:
+                            continue
+
+                        params_dict_fit[paramname] = paramval
+
                     target_values.append(target(target.params_dict2array(params_dict_fit)))
 
                 target_values = np.array(target_values)
