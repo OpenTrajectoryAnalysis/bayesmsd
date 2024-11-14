@@ -889,11 +889,6 @@ msdfun(dt,
         assert set(mci.keys()) == set(names)
         
         # Adjust for improper priors
-        # Doing this properly requires editing the bayesmsd.lib implementations
-        # Need to think about how to combine this with possible user-defined priors
-        # --> actually, no: since we just compactify and add a flat prior
-        # --> however, need to be able to check which parameters have proper/improper priors
-        # --> also note that e.g. α in NPXFit actually has a wrong prior
         def compactify(x, x0):
             return special.erf((x-x0)/sigma_improper)
         def decompactify(y, x0):
