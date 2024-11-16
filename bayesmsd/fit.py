@@ -662,6 +662,32 @@ msdfun(dt,
                         - self.offset
                         )
 
+        def profile_marginalized_params(self, params):
+            """
+            Run the profiler over the marginalized parameters
+
+            Parameters
+            ----------
+            params : dict
+            
+            Returns
+            -------
+            dict
+                for each marginalized parameter: point estimate and 95%
+                credible interval
+            """
+            if self.margev_fit is None:
+                return dict()
+
+            params_array = self.params_dict2array(params)
+            for name, val in zip(self.param_names, params_array):
+                self.margev_fit.parameters[name].fix_to = val
+
+            profiler = Profiler(self.margev_fit,
+                                profiling=len(self.marginalized_param_names) > 1,
+                                ) # ^ suppress warning for single param
+            return profiler.find_MCI()
+
     @method_verbosity_patch
     def run(self,
             init_from = None,
@@ -798,7 +824,9 @@ msdfun(dt,
                     self.vprint(1, '\n', fitres)
                     raise RuntimeError("Fit failed at step {:d}: {:s}".format(istep, step))
                 else:
-                    all_res.append(({'params' : min_target.params_array2dict(fitres.x),
+                    params = min_target.params_array2dict(fitres.x)
+                    all_res.append(({'params' : params,
+                                     'marginalized' : min_target.profile_marginalized_params(params),
                                      'logL' : -(fitres.fun+min_target.offset),
                                     }, fitres))
                     p0 = fitres.x
