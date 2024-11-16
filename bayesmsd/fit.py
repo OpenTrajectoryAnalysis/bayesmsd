@@ -6,7 +6,7 @@ See also
 bayesmsd, Fit, Profiler <bayesmsd.profiler.Profiler>
 """
 from abc import ABCMeta, abstractmethod
-from copy import deepcopy
+from copy import copy, deepcopy
 
 from tqdm.auto import tqdm
 
@@ -19,6 +19,8 @@ from .gp import GP, msd2C_fun
 from .deco import method_verbosity_patch
 from .profiler import Profiler
 from .parameters import Parameter, Linearize
+
+_MARGINALIZE = '<marginalize>'
 
 class Fit(metaclass=ABCMeta):
     """
@@ -164,7 +166,7 @@ class Fit(metaclass=ABCMeta):
         # List of those parameter names that have improper priors
         # Remember to define ``self.logprior`` for those that have proper priors!
         self.improper_priors = []
-        
+
     def vprint(self, v, *args, **kwargs):
         """
         Prints only if ``self.verbosity >= v``.
@@ -403,6 +405,7 @@ msdfun(dt,
         -----
         Parameter resolution order:
 
+         + (marginalization)
          + free parameters
          + fixed to constant
          + fixed to other parameter by name
@@ -412,6 +415,9 @@ msdfun(dt,
         callable. You can use ``parameter.fix_to = other_parameter.fix_to``
         instead to just copy the function over instead of fixing by name. This
         helps prevent undetectable cycles in the fixes.
+
+        You also cannot fix to a parameter that is being marginalized over
+        (this would not make sense).
         """
         # Merge input and fit-internal fix_values (input takes precedence)
         # Note: using the dict here ensures uniqueness (only one fix per
@@ -424,10 +430,14 @@ msdfun(dt,
 
         # Keep track of which parameter is resolved how, such that we can give
         # a good resolution order later
+        marginalized = [name for name in fix_values if fix_values[name] == _MARGINALIZE]
         unfixed = [name for name in self.parameters if name not in fix_values]
         to_constant = [] # just names
         to_other = []    # (name, resolves_to)
         to_callable = [] # just names
+
+        for name in marginalized:
+            del fix_values[name]
 
         # Convert constants (name or numerical) to callables
         for name, fix_to in fix_values.items():
@@ -435,6 +445,9 @@ msdfun(dt,
                 to_callable.append(name)
             else:
                 if fix_to in self.parameters:
+                    if fix_to in marginalized:
+                        raise ValueError(f"Cannot fix parameter {name} to marginalized parameter {fix_to}")
+
                     to_other.append((name, fix_to))
                     fix_values[name] = lambda x, name=fix_to : x[name]
                 else:
@@ -468,11 +481,11 @@ msdfun(dt,
         resolution_order += to_callable
 
         # Remove unfixed parameters
-        assert len(resolution_order) == len(self.parameters)
+        assert len(resolution_order)+len(marginalized) == len(self.parameters)
         assert resolution_order[:len(unfixed)] == unfixed
         resolution_order = resolution_order[len(unfixed):]
 
-        return fix_values, resolution_order, unfixed
+        return fix_values, resolution_order, unfixed, marginalized
 
     def independent_parameters(self, fix_values=None):
         """
@@ -492,7 +505,13 @@ msdfun(dt,
         if fix_values is None:
             fix_values = {}
 
-        return [name for name in self.parameters if (name not in fix_values and self.parameters[name].fix_to is None)]
+        def is_free(name):
+            try:
+                return fix_values[name] is None
+            except KeyError:
+                return self.parameters[name].fix_to is None
+
+        return [name for name in self.parameters if is_free(name)]
                 
     class MinTarget:
         """
@@ -545,12 +564,19 @@ msdfun(dt,
             self.fix_values                  = fv[0]
             self.fix_values_resolution_order = fv[1]
             self.param_names                 = fv[2]
+            self.marginalized_param_names    = fv[3]
 
             self.offset = offset
             
             self.paramnames_prior = self.param_names
             if not adjust_prior_for_fixed_values:
                 self.paramnames_prior += list(fix_values.keys())
+
+            if len(self.marginalized_param_names) > 0:
+                self.margev_fit = copy(self.fit) # shallow, to prevent data copying
+                self.margev_fit.parameters = deepcopy(margev_fit.parameters) # deep, will be changed
+            else:
+                self.margev_fit = None # no marginalization to do
 
         def params_array2dict(self, params_array):
             """
@@ -571,6 +597,9 @@ msdfun(dt,
             params = dict(zip(self.param_names, params_array))
             for name in self.fix_values_resolution_order:
                 params[name] = self.fix_values[name](params)
+
+            for name in self.marginalized_param_names:
+                params[name] = np.nan
 
             return params
 
@@ -617,13 +646,24 @@ msdfun(dt,
                 return self.fit.max_penalty
             else:
                 self.fit.data.restoreSelection(self.fit.data_selection)
-                return -GP.ds_logL(self.fit.data,
-                                   self.fit.ss_order,
-                                   self.fit.params2msdm(params),
-                                  ) \
-                       - self.fit.logprior(params_prior) \
-                       + penalty \
-                       - self.offset
+
+                if self.margev_fit is None:
+                    logL = GP.ds_logL(self.fit.data,
+                                      self.fit.ss_order,
+                                      self.fit.params2msdm(params),
+                                      )
+                else:
+                    for name, val in params.items():
+                        self.margev_fit.parameters[name].fix_to = val
+                    for name in self.marginalized_param_names:
+                        self.margev_fit.parameters[name].fix_to = None
+                    logL = self.margev_fit.evidence()
+
+                return (- logL
+                        - self.fit.logprior(params_prior)
+                        + penalty
+                        - self.offset
+                        )
 
     @method_verbosity_patch
     def run(self,
