@@ -415,9 +415,6 @@ msdfun(dt,
         callable. You can use ``parameter.fix_to = other_parameter.fix_to``
         instead to just copy the function over instead of fixing by name. This
         helps prevent undetectable cycles in the fixes.
-
-        You also cannot fix to a parameter that is being marginalized over
-        (this would not make sense).
         """
         # Merge input and fit-internal fix_values (input takes precedence)
         # Note: using the dict here ensures uniqueness (only one fix per
@@ -425,29 +422,27 @@ msdfun(dt,
         fix_values_in = fix_values if fix_values is not None else {}
         fix_values = {name : param.fix_to
                       for name, param in self.parameters.items()
-                      if param.fix_to is not None}
+                      }
         fix_values.update(fix_values_in)
+        fix_values = {name : val for name, val in fix_values.items() if val is not None}
 
         # Keep track of which parameter is resolved how, such that we can give
         # a good resolution order later
-        marginalized = [name for name in fix_values if fix_values[name] == _MARGINALIZE]
         unfixed = [name for name in self.parameters if name not in fix_values]
-        to_constant = [] # just names
-        to_other = []    # (name, resolves_to)
-        to_callable = [] # just names
-
-        for name in marginalized:
-            del fix_values[name]
+        marginalized = [] # just names
+        to_constant = []  # just names
+        to_other = []     # (name, resolves_to)
+        to_callable = []  # just names
 
         # Convert constants (name or numerical) to callables
         for name, fix_to in fix_values.items():
-            if callable(fix_to):
+            if fix_to == _MARGINALIZE:
+                marginalized.append(name)
+                fix_values[name] = lambda _: np.nan
+            elif callable(fix_to):
                 to_callable.append(name)
             else:
                 if fix_to in self.parameters:
-                    if fix_to in marginalized:
-                        raise ValueError(f"Cannot fix parameter {name} to marginalized parameter {fix_to}")
-
                     to_other.append((name, fix_to))
                     fix_values[name] = lambda x, name=fix_to : x[name]
                 else:
@@ -455,10 +450,12 @@ msdfun(dt,
                     fix_values[name] = lambda x, val=fix_to : val
 
         # Determine resolution order:
-        # - constants go first, in undetermined order
-        # - then resolve identifications recursively
-        # - finally the general callables
-        resolution_order = unfixed + to_constant
+        # - free parameters (no resolution necessary)
+        # - marginalized (nan)
+        # - constants (in undetermined order)
+        # - identifications (need to be resolved recursively)
+        # - general callables
+        resolution_order = unfixed + marginalized + to_constant
         while len(to_other) > 0:
             cache_len = len(to_other)
             i = 0
@@ -481,7 +478,7 @@ msdfun(dt,
         resolution_order += to_callable
 
         # Remove unfixed parameters
-        assert len(resolution_order)+len(marginalized) == len(self.parameters)
+        assert len(resolution_order) == len(self.parameters)
         assert resolution_order[:len(unfixed)] == unfixed
         resolution_order = resolution_order[len(unfixed):]
 
@@ -574,7 +571,12 @@ msdfun(dt,
 
             if len(self.marginalized_param_names) > 0:
                 self.margev_fit = copy(self.fit) # shallow, to prevent data copying
-                self.margev_fit.parameters = deepcopy(margev_fit.parameters) # deep, will be changed
+
+                self.margev_fit.parameters = deepcopy(fit.parameters) # so we can override
+                for name in self.marginalized_param_names:
+                    self.margev_fit.parameters[name].fix_to = None
+                for name in self.param_names:
+                    self.margev_fit.parameters[name].fix_to = np.nan
             else:
                 self.margev_fit = None # no marginalization to do
 
@@ -597,9 +599,6 @@ msdfun(dt,
             params = dict(zip(self.param_names, params_array))
             for name in self.fix_values_resolution_order:
                 params[name] = self.fix_values[name](params)
-
-            for name in self.marginalized_param_names:
-                params[name] = np.nan
 
             return params
 
@@ -653,10 +652,8 @@ msdfun(dt,
                                       self.fit.params2msdm(params),
                                       )
                 else:
-                    for name, val in params.items():
+                    for name, val in zip(self.param_names, params_array):
                         self.margev_fit.parameters[name].fix_to = val
-                    for name in self.marginalized_param_names:
-                        self.margev_fit.parameters[name].fix_to = None
                     logL = self.margev_fit.evidence()
 
                 return (- logL
