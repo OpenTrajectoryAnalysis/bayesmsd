@@ -433,58 +433,57 @@ class TestProfiler(myTestCase):
     # self.fit powerlaw, aka 2-point spline
     @patch('builtins.print')
     def testGeneric(self, mockprint=None):
-        with Pool(5) as mypool:
-            with nl.Parallelize(mypool.imap, mypool.imap_unordered):
-                # conditional posterior
-                profiler = bayesmsd.Profiler(self.fit, profiling=False)
-                with self.assertRaises(RuntimeError):
-                    profiler.find_single_MCI("y0")
-                profiler.run_fit()
-                res = profiler.best_estimate # just checking some path within best_estimate
+        with nl.Parallelize(n=5):
+            # conditional posterior
+            profiler = bayesmsd.Profiler(self.fit, profiling=False)
+            with self.assertRaises(RuntimeError):
+                profiler.find_single_MCI("y0")
+            profiler.run_fit()
+            res = profiler.best_estimate # just checking some path within best_estimate
 
-                # ensure more than one bracketing step
-                profiler.fit.parameters['y0'].linearization.step=0.01
-                mci_c = profiler.find_MCI()
-                profiler.fit.parameters['y0'].linearization.step=1.
-                self.assertLess(np.mean([np.abs(ci - m) for m, ci in mci_c.values()]), 1)
+            # ensure more than one bracketing step
+            profiler.fit.parameters['y0'].linearization.step=0.01
+            mci_c = profiler.find_MCI()
+            profiler.fit.parameters['y0'].linearization.step=1.
+            self.assertLess(np.mean([np.abs(ci - m) for m, ci in mci_c.values()]), 1)
 
-                # profile posterior
-                profiler = bayesmsd.Profiler(self.fit, profiling=True)
-                mci_p = profiler.find_MCI()
-                self.assertLess(np.mean([np.abs(ci - m) for m, ci in mci_p.values()]), 1)
+            # profile posterior
+            profiler = bayesmsd.Profiler(self.fit, profiling=True)
+            mci_p = profiler.find_MCI()
+            self.assertLess(np.mean([np.abs(ci - m) for m, ci in mci_p.values()]), 1)
 
-                # check best_estimate in the case where it's not the point estimate
-                res = profiler.best_estimate
-                self.assertIs(res, profiler.point_estimate)
-                res['params']["y1"] -= 1
-                params_array = profiler.min_target_from_fit.params_dict2array(res['params'])
-                res['logL'] = -profiler.min_target_from_fit(params_array)
-                self.assertIsNot(profiler.best_estimate, res)
+            # check best_estimate in the case where it's not the point estimate
+            res = profiler.best_estimate
+            self.assertIs(res, profiler.point_estimate)
+            res['params']["y1"] -= 1
+            params_array = profiler.min_target_from_fit.params_dict2array(res['params'])
+            res['logL'] = -profiler.min_target_from_fit(params_array)
+            self.assertIsNot(profiler.best_estimate, res)
 
-                # Artificially create a situation with a bad point estimate
-                # IRL this can happen in rugged landscapes
-                # profiling
-                profiler = bayesmsd.Profiler(self.fit, profiling=True, verbosity=3)
-                profiler.point_estimate = res
-                mci2_p = profiler.find_MCI()
+            # Artificially create a situation with a bad point estimate
+            # IRL this can happen in rugged landscapes
+            # profiling
+            profiler = bayesmsd.Profiler(self.fit, profiling=True, verbosity=3)
+            profiler.point_estimate = res
+            mci2_p = profiler.find_MCI()
 
-                self.assert_mci_almost_equal(mci_p, mci2_p, places=2)
+            self.assert_mci_almost_equal(mci_p, mci2_p, places=2)
 
-                # check replacement of gradient fit by simplex
-                # this will still fail, because the simplex also can't work
-                # with maxfev=1
-                with self.assertRaises(RuntimeError):
-                    pe = profiler.point_estimate
-                    pe['params']['y1'] -= 1 # ensure that gradient fit does not just converge
-                                            # after first evaluation
-                    profiler.run_fit(init_from=pe, maxfev=1)
+            # check replacement of gradient fit by simplex
+            # this will still fail, because the simplex also can't work
+            # with maxfev=1
+            with self.assertRaises(RuntimeError):
+                pe = profiler.point_estimate
+                pe['params']['y1'] -= 1 # ensure that gradient fit does not just converge
+                                        # after first evaluation
+                profiler.run_fit(init_from=pe, maxfev=1)
 
-                # conditional
-                profiler = bayesmsd.Profiler(self.fit, profiling=False, verbosity=3)
-                profiler.point_estimate = res
-                mci2_c = profiler.find_MCI()
+            # conditional
+            profiler = bayesmsd.Profiler(self.fit, profiling=False, verbosity=3)
+            profiler.point_estimate = res
+            mci2_c = profiler.find_MCI()
 
-                self.assert_mci_almost_equal(mci_p, mci2_p, places=2)
+            self.assert_mci_almost_equal(mci_p, mci2_p, places=2)
 
     def testMaxFitRuns(self):
         profiler = bayesmsd.Profiler(self.fit, max_fit_runs=2)
