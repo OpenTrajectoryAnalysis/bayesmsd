@@ -69,7 +69,7 @@ class GP: # just a namespace
         # just unpacking arguments
         return GP.logL(*params)
 
-    def ds_logL(data, ss_order, msd_ms):
+    def ds_logL(data, ss_order, msd_ms, chunksize=-1):
         """
         Gaussian process likelihood on a data set.
 
@@ -83,6 +83,11 @@ class GP: # just a namespace
             data set. The first entry of each tuple is a function, ideally
             decorated with `MSDfun`. The second should be a float giving the
             mean/drift for the process (often zero).
+        chunksize : int
+            controls chunk size for parallel processing, when running within
+            `!noctiluca.Parallel` context. Set to ``< 0`` to prevent
+            parallelization, ``0`` to submit everything into one process, ``>
+            0`` for chunked processing
 
         Returns
         ------
@@ -118,43 +123,67 @@ class GP: # just a namespace
         # different time lags for different trajectories; for this, we reserve
         # the meta entry 'Δt'; let's consider it unlikely that users would
         # unwittingly use 'Δt' otherwise (due to unicode Δ).
-        def job_generator(data, msd_ms):
-            for traj in data:
-                try:
-                    dt = traj.meta['Δt']
-                except KeyError:
-                    dt = 1
+        dts = np.ones(len(data), dtype=float)
+        for i, traj in enumerate(data):
+            try:
+                dts[i] = traj.meta['Δt']
+            except KeyError:
+                continue
 
-                for dim, (msd, m) in enumerate(msd_ms):
-                    trace = traj[:][:, dim]
+        dts_u = np.unique(dts)
+        Ts = {dt : 0 for dt in dts_u}
+        for traj, dt in zip(data, dts):
+            Ts[dt] = max(Ts[dt], len(traj))
 
-                    if ss_order == 1:
-                        my_m = m*dt
-                        my_msd = msd(dt*np.arange(len(trace)))
-                    else: # ss_order < 1
-                        my_m = m
-                        my_msd = msd(np.append(dt*np.arange(len(trace)), np.inf))
+        if ss_order == 1:
+            msd_m_by_dt = {dt : [(msd(dt*np.arange(Ts[dt])), m*dt)
+                                 for msd, m in msd_ms]
+                           for dt in dts_u}
+        else: # ss_order < 1
+            msd_m_by_dt = {dt : [(msd(np.append(dt*np.arange(Ts[dt]), np.inf)), m)
+                                 for msd, m in msd_ms]
+                           for dt in dts_u}
 
-                        if ss_order == 0.5 and my_msd[-1] > 1e10*my_msd[1]:
-                            # Numerical issues with dynamic range
-                            # If the plateau for a level 0 MSD is way higher than the
-                            # first point, the covariance matrix will be basically flat
-                            # (at the plateau value), with minor modulations (on the
-                            # order of the first MSD point); this gets hard to
-                            # represent accurately numerically and thus leads to
-                            # BadCovarianceErrors. For ss_order = 0 this is fine,
-                            # because it just gives a flat covariance, which is fine.
-                            # For ss_order = 0.5, however, we will subtract that large
-                            # base value and thus need the modulations to be precise;
-                            # but this also means that we don't care much about where
-                            # exactly the plateau is in the first place. So: if the
-                            # dynamic range gets too big and ss_order == 0.5, just trim
-                            # it down.
-                            my_msd[-1] = 1e10*my_msd[1]
+            if ss_order == 0.5:
+                for msd_m in msd_m_by_dt.values():
+                    for msd, _ in msd_m:
+                        # Numerical issues with dynamic range
+                        # If the plateau for a level 0 MSD is way higher than the
+                        # first point, the covariance matrix will be basically flat
+                        # (at the plateau value), with minor modulations (on the
+                        # order of the first MSD point); this gets hard to
+                        # represent accurately numerically and thus leads to
+                        # BadCovarianceErrors. For ss_order = 0 this is fine,
+                        # because it just gives a flat covariance, which is fine.
+                        # For ss_order = 0.5, however, we will subtract that large
+                        # base value and thus need the modulations to be precise;
+                        # but this also means that we don't care much about where
+                        # exactly the plateau is in the first place. So: if the
+                        # dynamic range gets too big and ss_order == 0.5, just trim
+                        # it down.
+                        msd[-1] = min(msd[-1], 1e10*msd[1])
 
-                    yield trace, ss_order, my_msd, my_m
-        
-        return np.sum(list(parallel._umap(GP._logL_for_parallelization, job_generator(data, msd_ms))))
+        todo = len(data)*d*[None]
+        for i, (traj, dt) in enumerate(zip(data, dts)):
+            msd_m = msd_m_by_dt[dt]
+            for dim, (msd, m) in enumerate(msd_m):
+                trace = traj[:][:, dim]
+                my_msd = msd[:len(trace)]
+                if ss_order < 1:
+                    my_msd = np.append(my_msd, msd[-1])
+
+                todo[d*i+dim] = (trace, ss_order, my_msd, m)
+
+        assert not any(td is None for td in todo) 
+
+        if chunksize < 0:
+            logLs = list(map(GP._logL_for_parallelization, todo))
+        else:
+            if chunksize == 0:
+                chunksize = len(todo)
+            logLs = list(parallel._map(GP._logL_for_parallelization, todo, chunksize=chunksize))
+
+        return np.sum(logLs)
 
 ################## Generative model ##########################################
 
