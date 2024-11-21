@@ -208,9 +208,12 @@ class FitGroup(Fit):
         def __init__(self, *args, **kwargs):
             super().__init__(*args, **kwargs)
             # gives:
-            # - self.fit              : the fitgroup
-            # - self.fix_values       : dict with param names and fixers at group level
-            # - self.param_names      : independent parameters
+            # - self.fit
+            # - self.params_marginalized
+            # - self.params_free
+            # - self.params_to_constant
+            # - self.params_to_other
+            # - self.params_to_callable
             del self.paramnames_prior # taken care of explicitly below
 
             try:
@@ -224,6 +227,7 @@ class FitGroup(Fit):
                 kwarg_fix_values = None
             if kwarg_fix_values is None:
                 kwarg_fix_values = {}
+            kwarg_fixed_params = [name for name, val in kwarg_fix_values if val is not None]
 
             # Assemble MinTarget for each fit
             self.mintargets = {}
@@ -232,14 +236,12 @@ class FitGroup(Fit):
 
                 prior_names = target.paramnames_prior
                 prior_names_joint = [self.fit.make_joint_param_name(fitname, paramname) for paramname in prior_names]
-                prior_names_adjusted = [name for name, joint_name in zip(prior_names, prior_names_joint)
-                                        if (   joint_name not in self.fix_values
-                                            or (adjust_prior_for_fixed_values == False
-                                                and joint_name in kwarg_fix_values
-                                                )
-                                            )
-                                        ]
-                target.paramnames_prior = prior_names_adjusted
+                calculate_prior_for = [name for name, joint_name in zip(prior_names, prior_names_joint)
+                                       if (joint_name in self.params_free
+                                           or (joint_name in kwarg_fixed_params
+                                               and adjust_prior_for_fixed_values == False
+                                           ))]
+                target.paramnames_prior = calculate_prior_for
                 
                 self.mintargets[fitname] = target
 

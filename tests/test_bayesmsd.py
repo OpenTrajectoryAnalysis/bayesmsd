@@ -147,12 +147,21 @@ class TestDiffusive(myTestCase):
 
     def testNPX(self):
         fit = bayesmsd.lib.NPXFit(self.data, ss_order=1, n=0)
+        fit.parameters['log(σ²) (dim 0)'].fix_to = -np.inf
+        fit.parameters['log(σ²) (dim 1)'].fix_to = 'log(σ²) (dim 0)'
+        fit.parameters['log(σ²) (dim 2)'].fix_to = lambda p : p['log(σ²) (dim 1)']
         res = fit.run(verbosity=0)
 
         fit = bayesmsd.lib.NPXFit(self.data, ss_order=1, n=1)
+        fit.parameters['log(σ²) (dim 0)'].fix_to = -np.inf
+        fit.parameters['log(σ²) (dim 1)'].fix_to = 'log(σ²) (dim 0)'
+        fit.parameters['log(σ²) (dim 2)'].fix_to = lambda p : p['log(σ²) (dim 1)']
         res = fit.run()
         
         fit = bayesmsd.lib.NPXFit(self.data, ss_order=1, n=1, motion_blur_f=0.5)
+        fit.parameters['log(σ²) (dim 0)'].fix_to = -np.inf
+        fit.parameters['log(σ²) (dim 1)'].fix_to = 'log(σ²) (dim 0)'
+        fit.parameters['log(σ²) (dim 2)'].fix_to = lambda p : p['log(σ²) (dim 1)']
         res = fit.run()
 
     def testNP(self):
@@ -212,9 +221,12 @@ class TestDiffusive(myTestCase):
         fit.parameters['α (dim 1)'].fix_to = '<marginalize>'
         fit.parameters['α (dim 2)'].fix_to = lambda p : 0.5
 
-        fv, res, unfixed, marginalized = fit.expand_fix_values()
-        self.assertListEqual(res[-2:], ['log(Γ) (dim 1)', 'α (dim 2)'])
+        marginalized, free, to_const, to_other, to_call = fit.expand_fix_values()
         self.assertListEqual(marginalized, ['α (dim 1)'])
+        self.assertIn(('log(σ²) (dim 0)', 0), to_const)
+        self.assertIn(('log(Γ) (dim 2)', 'log(Γ) (dim 0)'), to_other)
+        self.assertIn(('log(Γ) (dim 1)', 'log(Γ) (dim 2)'), to_other)
+        self.assertEqual(to_call[0][0], 'α (dim 2)')
 
         # Attempt circular fixing
         fit.verbosity = 0 # mute error message

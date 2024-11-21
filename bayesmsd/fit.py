@@ -428,40 +428,39 @@ msdfun(dt,
 
         # Keep track of which parameter is resolved how, such that we can give
         # a good resolution order later
-        unfixed = [name for name in self.parameters if name not in fix_values]
         marginalized = [] # just names
-        to_constant = []  # just names
-        to_other = []     # (name, resolves_to)
-        to_callable = []  # just names
+        unfixed      = [] # just names
+        to_constant  = [] # (name, constant)
+        to_other     = [] # (name, name2)
+        to_callable  = [] # (name, callable)
 
-        # Convert constants (name or numerical) to callables
-        for name, fix_to in fix_values.items():
+        for name in self.parameters:
+            try:
+                fix_to = fix_values[name]
+            except KeyError:
+                unfixed.append(name)
+                continue
+
             if fix_to == _MARGINALIZE:
                 marginalized.append(name)
-                fix_values[name] = lambda _: np.nan
             elif callable(fix_to):
-                to_callable.append(name)
+                to_callable.append((name, fix_to))
+            elif fix_to in self.parameters:
+                to_other   .append((name, fix_to))
             else:
-                if fix_to in self.parameters:
-                    to_other.append((name, fix_to))
-                    fix_values[name] = lambda x, name=fix_to : x[name]
-                else:
-                    to_constant.append(name)
-                    fix_values[name] = lambda x, val=fix_to : val
+                to_constant.append((name, fix_to))
 
-        # Determine resolution order:
-        # - free parameters (no resolution necessary)
-        # - marginalized (nan)
-        # - constants (in undetermined order)
-        # - identifications (need to be resolved recursively)
-        # - general callables
-        resolution_order = unfixed + marginalized + to_constant
+        # Sort out the order for fixing to other parameters
+        determined = marginalized + unfixed + [name for name, _ in to_constant]
+        to_other_ordered = []
         while len(to_other) > 0:
             cache_len = len(to_other)
             i = 0
             while i < len(to_other):
-                if to_other[i][1] in resolution_order:
-                    resolution_order.append(to_other.pop(i)[0])
+                if to_other[i][1] in determined:
+                    name, fix_to = to_other.pop(i)
+                    to_other_ordered.append((name, fix_to))
+                    determined.append(name)
                 else:
                     i += 1
 
@@ -470,19 +469,13 @@ msdfun(dt,
                 # must be a cycle in the remaining fixes (or something depends
                 # on a parameter that's fixed by callable)
                 self.vprint(1, "Left-overs from resolution order determination:\n"
-                              f"resolution_order = {resolution_order}\n"
+                              f"      determined = {determined}\n"
                               f"        to_other = {to_other}\n"
                               f"     to_callable = {to_callable}\n")
                 raise RuntimeError("Could not determine resolution order of parameter fixes.")
 
-        resolution_order += to_callable
-
-        # Remove unfixed parameters
-        assert len(resolution_order) == len(self.parameters)
-        assert resolution_order[:len(unfixed)] == unfixed
-        resolution_order = resolution_order[len(unfixed):]
-
-        return fix_values, resolution_order, unfixed, marginalized
+        assert len(determined) + len(to_callable) == len(self.parameters)
+        return marginalized, unfixed, to_constant, to_other_ordered, to_callable
 
     def independent_parameters(self, fix_values=None):
         """
@@ -558,24 +551,25 @@ msdfun(dt,
 
             # See class docstring
             fv = self.fit.expand_fix_values(fix_values)
-            self.fix_values                  = fv[0]
-            self.fix_values_resolution_order = fv[1]
-            self.param_names                 = fv[2]
-            self.marginalized_param_names    = fv[3]
+            self.params_marginalized = fv[0]
+            self.params_free         = fv[1]
+            self.params_to_constant  = fv[2]
+            self.params_to_other     = fv[3]
+            self.params_to_callable  = fv[4]
 
             self.offset = offset
             
-            self.paramnames_prior = self.param_names
+            self.paramnames_prior = self.params_free
             if not adjust_prior_for_fixed_values:
                 self.paramnames_prior += list(fix_values.keys())
 
-            if len(self.marginalized_param_names) > 0:
+            if len(self.params_marginalized) > 0:
                 self.margev_fit = copy(self.fit) # shallow, to prevent data copying
 
                 self.margev_fit.parameters = deepcopy(fit.parameters) # so we can override
-                for name in self.marginalized_param_names:
+                for name in self.params_marginalized:
                     self.margev_fit.parameters[name].fix_to = None
-                for name in self.param_names:
+                for name in self.params_free:
                     self.margev_fit.parameters[name].fix_to = np.nan
             else:
                 self.margev_fit = None # no marginalization to do
@@ -596,9 +590,15 @@ msdfun(dt,
             --------
             params_dict2array
             """
-            params = dict(zip(self.param_names, params_array))
-            for name in self.fix_values_resolution_order:
-                params[name] = self.fix_values[name](params)
+            params = dict(zip(self.params_free, params_array))
+            for name in self.params_marginalized:
+                params[name] = np.nan
+            for name, val in self.params_to_constant:
+                params[name] = val
+            for name, other in self.params_to_other:
+                params[name] = params[other]
+            for name, fun in self.params_to_callable:
+                params[name] = fun(params)
 
             return params
 
@@ -618,7 +618,7 @@ msdfun(dt,
             --------
             params_array2dict
             """
-            return np.array([params[name] for name in self.param_names])
+            return np.array([params[name] for name in self.params_free])
 
         def __call__(self, params_array):
             """
@@ -652,7 +652,7 @@ msdfun(dt,
                                       self.fit.params2msdm(params),
                                       )
                 else:
-                    for name, val in zip(self.param_names, params_array):
+                    for name, val in zip(self.params_free, params_array):
                         self.margev_fit.parameters[name].fix_to = val
                     logL = self.margev_fit.evidence()
 
@@ -680,11 +680,11 @@ msdfun(dt,
                 return dict()
 
             params_array = self.params_dict2array(params)
-            for name, val in zip(self.param_names, params_array):
+            for name, val in zip(self.params_free, params_array):
                 self.margev_fit.parameters[name].fix_to = val
 
             profiler = Profiler(self.margev_fit,
-                                profiling=len(self.marginalized_param_names) > 1,
+                                profiling=len(self.params_marginalized) > 1,
                                 ) # ^ suppress warning for single param
             return profiler.find_MCI()
 
@@ -767,7 +767,7 @@ msdfun(dt,
                                     )
 
         p0 = min_target.params_dict2array(initial_params)
-        bounds = [self.parameters[name].bounds for name in min_target.param_names]
+        bounds = [self.parameters[name].bounds for name in min_target.params_free]
         
         # Set up progress bar
         bar = tqdm(disable = not show_progress)
