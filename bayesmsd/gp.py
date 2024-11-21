@@ -69,7 +69,8 @@ class GP: # just a namespace
         # just unpacking arguments
         return GP.logL(*params)
 
-    def ds_logL(data, ss_order, msd_ms, chunksize=-1):
+    @parallel.chunky('chunksize', -1)
+    def ds_logL(data, ss_order, msd_ms):
         """
         Gaussian process likelihood on a data set.
 
@@ -175,7 +176,7 @@ class GP: # just a namespace
                 todo[d*i+dim] = (trace, ss_order, my_msd, m)
 
         assert not any(td is None for td in todo) 
-        return np.sum(list(parallel._map(GP._logL_for_parallelization, todo, chunksize=chunksize)))
+        return np.sum(list(parallel._map(GP._logL_for_parallelization, todo)))
 
 ################## Generative model ##########################################
 

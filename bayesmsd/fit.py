@@ -850,6 +850,7 @@ msdfun(dt,
         else:
             return all_res[-1][0]
 
+    @parallel.chunky('likelihood_chunksize', -1)
     def evidence(self, show_progress=False,
                  conf = 0.8,
                  conf_tol = 0.1,
@@ -857,7 +858,6 @@ msdfun(dt,
                  n_steps_per_cred = 2,
                  f_integrate = 0.99,
                  log10L_improper = 3,
-                 likelihood_chunksize = -1,
                 ):
         """
         Estimate evidence for this model
@@ -890,7 +890,7 @@ msdfun(dt,
             mass".
         log10L_improper : float
             width of surrogate prior for improper priors. See Notes.
-        likelihood_chunksize = int
+        likelihood_chunksize : int
             see class description; here a chunksize of 1 corresponds to a
             single call to the fit likelihood.
 
@@ -1070,7 +1070,7 @@ msdfun(dt,
                             | dict(zip(names, x)))
                          for x in xlist]
 
-            imap = parallel._map(neg_logL, paramlist, chunksize=likelihood_chunksize)
+            imap = parallel._map(neg_logL, paramlist)
             for ind, nlogL in zip(ilist, imap):
                 logL[tuple(ind)] = -nlogL
                 bar.update()
