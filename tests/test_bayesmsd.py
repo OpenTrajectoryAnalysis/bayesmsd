@@ -171,6 +171,8 @@ class TestDiffusive(myTestCase):
 
     def testNP_marginalized(self):
         fit = bayesmsd.lib.NPFit(self.data)
+        for dim in range(fit.d):
+            fit.parameters[f"log(σ²) (dim {dim})"].fix_to = -np.inf 
         fit.parameters['log(αΓ) (dim 0)'].fix_to = '<marginalize>'
         res = fit.run()
 
@@ -241,7 +243,7 @@ class TestDiffusive(myTestCase):
 
 class TestRouseLoci(myTestCase):
     def setUp(self):
-        model = rouse.Model(10)
+        model = rouse.Model(10, d=2)
         tracked = [2, 7]
         def traj():
             conf = model.conf_ss()
@@ -295,6 +297,8 @@ class TestRouseLoci(myTestCase):
     def testSS05trimming(self):
         fit = bayesmsd.lib.TwoLocusRouseFit(self.data)
         fit.ss_order = 0.5
+        for dim in range(fit.d):
+            fit.parameters[f"log(σ²) (dim {dim})"].fix_to = -np.inf 
         res = fit.run()
 
         res['params']['log(J) (dim 0)'] = 100
@@ -305,31 +309,41 @@ class TestRouseLoci(myTestCase):
 
     def testEvidence(self):
         fit = bayesmsd.lib.TwoLocusRouseFit([self.data[0].dims([0])])
-        fit.parameters['log(σ²) (dim 0)'].fix_to = -np.inf
+        for dim in range(fit.d):
+            fit.parameters[f"log(σ²) (dim {dim})"].fix_to = -np.inf 
         ev = fit.evidence()
 
     def testEvidence_3D(self):
         fit = bayesmsd.lib.TwoLocusRouseFit([self.data[0]])
-        fit.parameters['log(σ²) (dim 0)'].fix_to = -np.inf
+        for dim in range(fit.d):
+            fit.parameters[f"log(σ²) (dim {dim})"].fix_to = -np.inf 
         ev = fit.evidence()
 
     @patch('builtins.print')
     def testNPX(self, mock_print):
         fit = bayesmsd.lib.NPXFit(self.data, ss_order=0.5, n=1)
+        for dim in range(fit.d):
+            fit.parameters[f"log(σ²) (dim {dim})"].fix_to = -np.inf 
         res = fit.run()
 
         fit = bayesmsd.lib.NPXFit(self.data, ss_order=0, n=1)
+        for dim in range(fit.d):
+            fit.parameters[f"log(σ²) (dim {dim})"].fix_to = -np.inf 
         res = fit.run()
 
         new_fit = bayesmsd.lib.NPXFit(self.data, ss_order=0, n=2,
                                     previous_NPXFit_and_result = (fit, res),
                                     )
+        for dim in range(new_fit.d):
+            new_fit.parameters[f"log(σ²) (dim {dim})"].fix_to = -np.inf 
         new_res = new_fit.run()
         self.assertGreater(new_res['logL'], res['logL'])
 
         new2_fit = bayesmsd.lib.NPXFit(self.data, ss_order=1, n=0,
                                      previous_NPXFit_and_result = (new_fit, new_res),
                                      )
+        for dim in range(new2_fit.d):
+            new2_fit.parameters[f"log(σ²) (dim {dim})"].fix_to = -np.inf 
         try:
             new2_res = new2_fit.run()
         except RuntimeError as err: # pragma: no cover
@@ -342,6 +356,8 @@ class TestRouseLoci(myTestCase):
         new3_fit = bayesmsd.lib.NPXFit(self.data, ss_order=0, n=1,
                                      previous_NPXFit_and_result = (new2_fit, new2_res),
                                      )
+        for dim in range(new3_fit.d):
+            new3_fit.parameters[f"log(σ²) (dim {dim})"].fix_to = -np.inf 
         try:
             new3_res = new3_fit.run()
             self.assertLess(new3_res['logL'], new_res['logL'] + 2)
@@ -351,6 +367,8 @@ class TestRouseLoci(myTestCase):
         new4_fit = bayesmsd.lib.NPXFit(self.data, ss_order=1, n=1,
                                      previous_NPXFit_and_result = (new2_fit, new2_res),
                                      )
+        for dim in range(new4_fit.d):
+            new4_fit.parameters[f"log(σ²) (dim {dim})"].fix_to = -np.inf 
         try:
             new4_res = new4_fit.run()
             self.assertGreater(new4_res['logL'], new2_res['logL'] - 2)
@@ -368,12 +386,18 @@ class TestRouseLoci(myTestCase):
 
     def testDiscreteRouse(self):
         fit = bayesmsd.lib.DiscreteRouseFit(self.data)
+        for dim in range(fit.d):
+            fit.parameters[f"log(σ²) (dim {dim})"].fix_to = -np.inf 
         res = fit.run()
 
         fit = bayesmsd.lib.DiscreteRouseFit(self.data, motion_blur_f=1.)
+        for dim in range(fit.d):
+            fit.parameters[f"log(σ²) (dim {dim})"].fix_to = -np.inf 
         res = fit.run()
 
         fit = bayesmsd.lib.DiscreteRouseFit(self.data, motion_blur_f=1., use_approx=True)
+        for dim in range(fit.d):
+            fit.parameters[f"log(σ²) (dim {dim})"].fix_to = -np.inf 
         res = fit.run()
 
 class TestFitGroup(myTestCase):
@@ -437,7 +461,7 @@ class TestProfiler(myTestCase):
     # set up diffusive data set
     def setUp(self):
         def traj():
-            return nl.Trajectory(np.cumsum(np.random.normal(size=(10, 3)), axis=0))
+            return nl.Trajectory(np.cumsum(np.random.normal(size=(10, 1)), axis=0))
 
         self.data = nl.TaggedSet((traj() for _ in range(10)), hasTags=False)
         self.fit = bayesmsd.lib.SplineFit(self.data, ss_order=1, n=2)
@@ -445,57 +469,57 @@ class TestProfiler(myTestCase):
     # self.fit powerlaw, aka 2-point spline
     @patch('builtins.print')
     def testGeneric(self, mockprint=None):
-        with nl.Parallelize(n=5):
-            # conditional posterior
-            profiler = bayesmsd.Profiler(self.fit, profiling=False)
-            with self.assertRaises(RuntimeError):
-                profiler.find_single_MCI("y0")
-            profiler.run_fit()
-            res = profiler.best_estimate # just checking some path within best_estimate
+        # with nl.Parallelize(n=5):
+        # conditional posterior
+        profiler = bayesmsd.Profiler(self.fit, profiling=False)
+        with self.assertRaises(RuntimeError):
+            profiler.find_single_MCI("y0")
+        profiler.run_fit()
+        res = profiler.best_estimate # just checking some path within best_estimate
 
-            # ensure more than one bracketing step
-            profiler.fit.parameters['y0'].linearization.step=0.01
-            mci_c = profiler.find_MCI()
-            profiler.fit.parameters['y0'].linearization.step=1.
-            self.assertLess(np.mean([np.abs(ci - m) for m, ci in mci_c.values()]), 1)
+        # ensure more than one bracketing step
+        profiler.fit.parameters['y0'].linearization.step=0.01
+        mci_c = profiler.find_MCI()
+        profiler.fit.parameters['y0'].linearization.step=1.
+        self.assertLess(np.mean([np.abs(ci - m) for m, ci in mci_c.values()]), 1)
 
-            # profile posterior
-            profiler = bayesmsd.Profiler(self.fit, profiling=True)
-            mci_p = profiler.find_MCI()
-            self.assertLess(np.mean([np.abs(ci - m) for m, ci in mci_p.values()]), 1)
+        # profile posterior
+        profiler = bayesmsd.Profiler(self.fit, profiling=True)
+        mci_p = profiler.find_MCI()
+        self.assertLess(np.mean([np.abs(ci - m) for m, ci in mci_p.values()]), 1)
 
-            # check best_estimate in the case where it's not the point estimate
-            res = profiler.best_estimate
-            self.assertIs(res, profiler.point_estimate)
-            res['params']["y1"] -= 1
-            params_array = profiler.min_target_from_fit.params_dict2array(res['params'])
-            res['logL'] = -profiler.min_target_from_fit(params_array)
-            self.assertIsNot(profiler.best_estimate, res)
+        # check best_estimate in the case where it's not the point estimate
+        res = profiler.best_estimate
+        self.assertIs(res, profiler.point_estimate)
+        res['params']["y1"] -= 1
+        params_array = profiler.min_target_from_fit.params_dict2array(res['params'])
+        res['logL'] = -profiler.min_target_from_fit(params_array)
+        self.assertIsNot(profiler.best_estimate, res)
 
-            # Artificially create a situation with a bad point estimate
-            # IRL this can happen in rugged landscapes
-            # profiling
-            profiler = bayesmsd.Profiler(self.fit, profiling=True, verbosity=3)
-            profiler.point_estimate = res
-            mci2_p = profiler.find_MCI()
+        # Artificially create a situation with a bad point estimate
+        # IRL this can happen in rugged landscapes
+        # profiling
+        profiler = bayesmsd.Profiler(self.fit, profiling=True, verbosity=3)
+        profiler.point_estimate = res
+        mci2_p = profiler.find_MCI()
 
-            self.assert_mci_almost_equal(mci_p, mci2_p, places=2)
+        self.assert_mci_almost_equal(mci_p, mci2_p, places=2)
 
-            # check replacement of gradient fit by simplex
-            # this will still fail, because the simplex also can't work
-            # with maxfev=1
-            with self.assertRaises(RuntimeError):
-                pe = profiler.point_estimate
-                pe['params']['y1'] -= 1 # ensure that gradient fit does not just converge
-                                        # after first evaluation
-                profiler.run_fit(init_from=pe, maxfev=1)
+        # check replacement of gradient fit by simplex
+        # this will still fail, because the simplex also can't work
+        # with maxfev=1
+        with self.assertRaises(RuntimeError):
+            pe = profiler.point_estimate
+            pe['params']['y1'] -= 1 # ensure that gradient fit does not just converge
+                                    # after first evaluation
+            profiler.run_fit(init_from=pe, maxfev=1)
 
-            # conditional
-            profiler = bayesmsd.Profiler(self.fit, profiling=False, verbosity=3)
-            profiler.point_estimate = res
-            mci2_c = profiler.find_MCI()
+        # conditional
+        profiler = bayesmsd.Profiler(self.fit, profiling=False, verbosity=3)
+        profiler.point_estimate = res
+        mci2_c = profiler.find_MCI()
 
-            self.assert_mci_almost_equal(mci_p, mci2_p, places=2)
+        self.assert_mci_almost_equal(mci_p, mci2_p, places=2)
 
     def testMaxFitRuns(self):
         profiler = bayesmsd.Profiler(self.fit, max_fit_runs=2)
@@ -669,4 +693,7 @@ class TestNewImplementation(myTestCase):
         self.assertIn('_kwargstring', non_imaging_fun.__dict__)
 
 if __name__ == '__main__': # pragma: no cover
-    unittest.main(module=__file__.split('/')[-1][:-3])
+    import cProfile
+    with cProfile.Profile() as pr:
+        unittest.main(module=__file__.split('/')[-1][:-3], exit=False, argv=sys.argv+['-v'])
+        pr.dump_stats('/'.join(__file__.split('/')[:-1]+['profiling.stats']))

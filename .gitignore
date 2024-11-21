@@ -6,6 +6,7 @@ doc/cython_yellow
 tests/env
 tests/coverage
 tests/installation
+tests/profiling.stats
 dist/
 build/
 build.env/
