@@ -223,6 +223,7 @@ class FitGroup(Fit):
             super().__init__(*args, **kwargs)
             # gives:
             # - self.fit
+            # - self.likelihood_chunksize
             # - self.params_marginalized
             # - self.params_free
             # - self.params_to_constant
@@ -286,7 +287,7 @@ class FitGroup(Fit):
                     todo.append((target, target.params_dict2array(params_dict_fit)))
 
                 imap = parallel._map(self._eval_target, todo,
-                                     chunksize=self.fit.likelihood_chunksize,
+                                     chunksize=self.likelihood_chunksize,
                                      )
                 target_values = np.array([penalty] + list(imap))
 
