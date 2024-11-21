@@ -175,15 +175,7 @@ class GP: # just a namespace
                 todo[d*i+dim] = (trace, ss_order, my_msd, m)
 
         assert not any(td is None for td in todo) 
-
-        if chunksize < 0:
-            logLs = list(map(GP._logL_for_parallelization, todo))
-        else:
-            if chunksize == 0:
-                chunksize = len(todo)
-            logLs = list(parallel._map(GP._logL_for_parallelization, todo, chunksize=chunksize))
-
-        return np.sum(logLs)
+        return np.sum(list(parallel._map(GP._logL_for_parallelization, todo, chunksize=chunksize)))
 
 ################## Generative model ##########################################
 

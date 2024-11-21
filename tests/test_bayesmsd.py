@@ -438,11 +438,17 @@ class TestFitGroup(myTestCase):
         self.fitgroup = fitgroup
 
     def test_run(self):
-        res = self.fitgroup.run()
+        self.fitgroup.likelihood_chunksize = 1
+        with nl.Parallelize(n=2):
+            res = self.fitgroup.run()
         self.assertEqual(res['params']['b log(αΓ) (dim 0)'], res['params']['a log(αΓ) (dim 0)'])
 
+        self.fitgroup.likelihood_chunksize = 0
+        res = self.fitgroup.run()
+
     def test_evidence(self):
-        ev = self.fitgroup.evidence()
+        with nl.Parallelize(2):
+            ev = self.fitgroup.evidence(likelihood_chunksize=100)
         self.assertTrue(np.isfinite(ev))
     
     def test_logprior(self):
@@ -465,17 +471,18 @@ class TestProfiler(myTestCase):
 
         self.data = nl.TaggedSet((traj() for _ in range(10)), hasTags=False)
         self.fit = bayesmsd.lib.SplineFit(self.data, ss_order=1, n=2)
+        self.fit.likelihood_chunksize = 0
 
     # self.fit powerlaw, aka 2-point spline
     @patch('builtins.print')
     def testGeneric(self, mockprint=None):
-        # with nl.Parallelize(n=5):
-        # conditional posterior
-        profiler = bayesmsd.Profiler(self.fit, profiling=False)
-        with self.assertRaises(RuntimeError):
-            profiler.find_single_MCI("y0")
-        profiler.run_fit()
-        res = profiler.best_estimate # just checking some path within best_estimate
+        with nl.Parallelize(): # for funsies, won't make things faster
+            # conditional posterior
+            profiler = bayesmsd.Profiler(self.fit, profiling=False)
+            with self.assertRaises(RuntimeError):
+                profiler.find_single_MCI("y0")
+            profiler.run_fit()
+            res = profiler.best_estimate # just checking some path within best_estimate
 
         # ensure more than one bracketing step
         profiler.fit.parameters['y0'].linearization.step=0.01
@@ -695,5 +702,5 @@ class TestNewImplementation(myTestCase):
 if __name__ == '__main__': # pragma: no cover
     import cProfile
     with cProfile.Profile() as pr:
-        unittest.main(module=__file__.split('/')[-1][:-3], exit=False, argv=sys.argv+['-v'])
+        unittest.main(module=__file__.split('/')[-1][:-3], exit=False)#, argv=sys.argv+['-v'])
         pr.dump_stats('/'.join(__file__.split('/')[:-1]+['profiling.stats']))

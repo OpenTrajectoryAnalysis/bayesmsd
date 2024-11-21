@@ -2,7 +2,13 @@ from copy import deepcopy
 
 import numpy as np
 
+from noctiluca import parallel
+
 from .fit import Fit
+
+class Patch: # used for masking Fit.data and others
+    def __call__(self, *args, **kwargs):
+        return None
 
 class FitGroup(Fit):
     """
@@ -47,6 +53,13 @@ class FitGroup(Fit):
     improper_priors : list of str
         aggregated list of `!Fit.improper_priors`, with names adjusted to the
         joint fit (i.e. prefixed with the fit name)
+    likelihood_chunksize : int
+        controls chunking of parallelization (if running in
+        `!noctiluca.Parallelize` context): ``< 0`` prevents any
+        parallelization; ``0`` submits the whole likelihood calculation into
+        one process; ``> 0`` chunks the likelihood calculation by fits; i.e. a
+        chunk size of 1 corresponds to each fit in `!fit_dict` running in its
+        own process.
     """
     # TODO: this probably won't work with spline fits for now (because they
     # rely on fixed max trajectory length for time compaction). This should be
@@ -56,9 +69,9 @@ class FitGroup(Fit):
         self.fits_dict = fits_dict
 
         # mask self.data.restoreSelection() and self.data_selection (which are used in Fit.run())
-        self.data = lambda : None
-        self.data.restoreSelection = lambda *args, **kwargs : None
-        self.data_selection = None
+        self.data = Patch()
+        self.data.restoreSelection = Patch()
+        self.data_selection = Patch()
 
         # grab parameters from individual fits
         self.parameters = {}
@@ -72,6 +85,7 @@ class FitGroup(Fit):
         self.max_penalty = min(fit.max_penalty for fit in self.fits_dict.values())
 
         self.verbosity = 1
+        self.likelihood_chunksize = -1
 
         self.improper_priors = [self.make_joint_param_name(fitname, paramname)
                                 for fitname, fit in self.fits_dict.items()
@@ -245,6 +259,12 @@ class FitGroup(Fit):
                 
                 self.mintargets[fitname] = target
 
+        @staticmethod
+        def _eval_target(target_and_params):
+            # for parallelization
+            target, params = target_and_params
+            return target(params)
+
         def __call__(self, params_array):
             params_dict = self.params_array2dict(params_array)
 
@@ -253,6 +273,7 @@ class FitGroup(Fit):
                 return self.fit.max_penalty
             else:
                 target_values = [penalty]
+                todo = []
                 for fitname, target in self.mintargets.items():
                     params_dict_fit = {}
                     for paramname, paramval in params_dict.items():
@@ -263,7 +284,10 @@ class FitGroup(Fit):
 
                         params_dict_fit[paramname] = paramval
 
-                    target_values.append(target(target.params_dict2array(params_dict_fit)))
+                    todo.append((target, target.params_dict2array(params_dict_fit)))
+
+                target_values += list(parallel._map(self._eval_target, todo,
+                                                    chunksize=self.fit.likelihood_chunksize))
 
                 target_values = np.array(target_values)
                 total = np.sum(target_values)

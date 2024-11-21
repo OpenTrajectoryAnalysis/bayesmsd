@@ -13,7 +13,7 @@ from tqdm.auto import tqdm
 import numpy as np
 from scipy import optimize, special, stats
 
-from noctiluca import make_TaggedSet
+from noctiluca import make_TaggedSet, parallel
 
 from .gp import GP, msd2C_fun
 from .deco import method_verbosity_patch
@@ -84,6 +84,14 @@ class Fit(metaclass=ABCMeta):
     verbosity : {0, 1, 2, 3}
         controls output during fitting. 0: no output; 1: error messages only;
         2: informational; 3: debugging
+    likelihood_chunksize : int
+        controls chunking of parallelization (if running in
+        `!noctiluca.Parallelize` context): ``< 0`` prevents any
+        parallelization; ``0`` submits the whole likelihood calculation into
+        one process; ``> 0`` chunks the likelihood calculation. A chunk size of
+        ``1`` means that for each dimension of each trajectory we submit a
+        separate task; this usually leads to (way) too much overhead, so higher
+        chunk sizes are recommended.
 
     Notes
     -----
@@ -162,6 +170,7 @@ class Fit(metaclass=ABCMeta):
         self.max_penalty = 1e10
         
         self.verbosity = 1
+        self.likelihood_chunksize = -1
 
         # List of those parameter names that have improper priors
         # Remember to define ``self.logprior`` for those that have proper priors!
@@ -650,6 +659,7 @@ msdfun(dt,
                     logL = GP.ds_logL(self.fit.data,
                                       self.fit.ss_order,
                                       self.fit.params2msdm(params),
+                                      chunksize=self.fit.likelihood_chunksize,
                                       )
                 else:
                     for name, val in zip(self.params_free, params_array):
@@ -846,6 +856,7 @@ msdfun(dt,
                  n_steps_per_cred = 2,
                  f_integrate = 0.99,
                  log10L_improper = 3,
+                 likelihood_chunksize = -1,
                 ):
         """
         Estimate evidence for this model
@@ -878,6 +889,9 @@ msdfun(dt,
             mass".
         log10L_improper : float
             width of surrogate prior for improper priors. See Notes.
+        likelihood_chunksize = int
+            see class description; here a chunksize of 1 corresponds to a
+            single call to the fit likelihood.
 
         Returns
         -------
@@ -1026,15 +1040,6 @@ msdfun(dt,
 
         logL = np.empty(logprior.shape, dtype=float)
         logL[:] = -np.inf
-
-        neg_logL = self.MinTarget(self)
-        def log_likelihood(x):
-            if np.any(np.isnan(x)):
-                return -self.max_penalty
-
-            params = neg_logL.params_array2dict(len(names)*[None])
-            params |= dict(zip(names, x))
-            return -neg_logL(neg_logL.params_dict2array(params))
         
         # Decompactify grid values
         for i, name in enumerate(names):
@@ -1044,16 +1049,39 @@ msdfun(dt,
         # Progress display
         bar = tqdm(disable = not show_progress, desc='likelihood evaluations during integration')
 
+        # (potentially parallel) likelihood evaluations
+        neg_logL = self.MinTarget(self)
+        def eval_log_likelihood(ilist):
+            # ilist : (N, len(xi)), dtype=int
+            #     indices into xi
+            xlist = np.array([[x[i] for x, i in zip(xi, ind)] for ind in ilist])
+            ind_nans = np.any(np.isnan(xlist), axis=-1)
+
+            for ind in ilist[ind_nans]:
+                # Important for detecting that we did (attempt to) evaluate this point
+                logL[ind] = -self.max_penalty
+
+            xlist = xlist[~ind_nans]
+            ilist = ilist[~ind_nans]
+
+            paramlist = [neg_logL.params_dict2array(
+                            neg_logL.params_array2dict(len(names)*[None])
+                            | dict(zip(names, x)))
+                         for x in xlist]
+
+            imap = parallel._map(neg_logL, paramlist, chunksize=likelihood_chunksize)
+            for ind, nlogL in zip(ilist, imap):
+                logL[tuple(ind)] = -nlogL
+                bar.update()
+
         # Evaluate central grid points (those within the estimated credible interval)
         igrid = np.meshgrid(*len(xi)*[np.arange(-n_steps_per_cred, n_steps_per_cred+1)])
-        ilist = np.stack([g.flatten() for g in igrid], axis=-1)
-        for ind in ilist:
-            logL[tuple(ind+i_center)] = log_likelihood([x[i] for x, i in zip(xi, ind+i_center)])
-            bar.update()
+        ilist = np.stack([g.flatten() for g in igrid], axis=-1) + i_center
+        eval_log_likelihood(ilist)
 
         # Iterative evaluation until we leave the maximum
-        logL_max = np.max(logL)
         while True:
+            logL_max = np.max(logL)
             candidates = -np.inf*np.ones(logL.shape, dtype=float)
             for ax in range(len(logL.shape)):
                 ind_c = len(logL.shape)*[slice(None)]
@@ -1073,9 +1101,7 @@ msdfun(dt,
             if len(ilist) == 0:
                 break
 
-            for ind in ilist:
-                logL[tuple(ind)] = log_likelihood([x[i] for x, i in zip(xi, ind)])
-                bar.update()
+            eval_log_likelihood(ilist)
 
         bar.close()
 
