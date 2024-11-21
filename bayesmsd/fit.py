@@ -557,6 +557,7 @@ msdfun(dt,
                      adjust_prior_for_fixed_values=True,
                      ):
             self.fit = fit
+            self.likelihood_chunksize = self.fit.likelihood_chunksize
 
             # See class docstring
             fv = self.fit.expand_fix_values(fix_values)
@@ -660,12 +661,12 @@ msdfun(dt,
                     logL = GP.ds_logL(self.fit.data,
                                       self.fit.ss_order,
                                       self.fit.params2msdm(params),
-                                      chunksize=self.fit.likelihood_chunksize,
+                                      chunksize=self.likelihood_chunksize,
                                       )
                 else:
                     for name, val in zip(self.params_free, params_array):
                         self.margev_fit.parameters[name].fix_to = val
-                    logL = self.margev_fit.evidence(likelihood_chunksize=self.fit.likelihood_chunksize)
+                    logL = self.margev_fit.evidence(likelihood_chunksize=self.likelihood_chunksize)
 
                 return (- logL
                         - self.fit.logprior(params_prior)
@@ -1052,6 +1053,7 @@ msdfun(dt,
 
         # (potentially parallel) likelihood evaluations
         neg_logL = self.MinTarget(self)
+        neg_logL.likelihood_chunksize = -1 # no nested parallelization
         def eval_log_likelihood(ilist):
             # ilist : (N, len(xi)), dtype=int
             #     indices into xi
