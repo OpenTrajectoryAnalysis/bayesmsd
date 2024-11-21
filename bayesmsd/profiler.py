@@ -334,6 +334,10 @@ class Profiler():
             res = self.fit.run(optimization_steps = ('simplex',),
                                **fit_kw,
                               )
+
+            if self.bar is not None:
+                self.bar.update() # pragma: no cover
+
             try: # try to refine
                 fit_kw['init_from'] = res
                 fit_kw['show_progress'] = False
@@ -677,7 +681,7 @@ class Profiler():
         """
         # Input processing
         if show_progress and self.bar is None:
-            self.bar = tqdm() # pragma: no cover
+            self.bar = tqdm(desc='profiler iterations') # pragma: no cover
             
         if self.point_estimate is None:
             self.vprint(2, "Finding initial point estimate ...")
@@ -686,6 +690,9 @@ class Profiler():
         self.vprint(2, "initial point estimate: params = {}, logL = {}\n".format(self.point_estimate['params'],
                                                                                  self.point_estimate['logL'],
                                                                                 ))
+
+        if self.bar is not None:
+            self.bar.update() # pragma: no cover
         
         if parameters is all:
             parameters = self.fit.independent_parameters()

@@ -782,7 +782,7 @@ msdfun(dt,
         bounds = [self.parameters[name].bounds for name in min_target.params_free]
         
         # Set up progress bar
-        bar = tqdm(disable = not show_progress)
+        bar = tqdm(disable = not show_progress, desc='fit iterations')
         def callback(x):
             bar.update()
 
@@ -1049,7 +1049,7 @@ msdfun(dt,
                 xi[i] = decompactify(xi[i], mci[name+'_orig'][0])
 
         # Progress display
-        bar = tqdm(disable = not show_progress, desc='likelihood evaluations during integration')
+        bar = tqdm(disable = not show_progress, desc='evidence integration')
 
         # (potentially parallel) likelihood evaluations
         neg_logL = self.MinTarget(self)
