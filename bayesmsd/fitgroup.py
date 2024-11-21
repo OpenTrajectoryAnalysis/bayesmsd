@@ -272,7 +272,6 @@ class FitGroup(Fit):
             if penalty < 0: # pragma: no cover
                 return self.fit.max_penalty
             else:
-                target_values = [penalty]
                 todo = []
                 for fitname, target in self.mintargets.items():
                     params_dict_fit = {}
@@ -286,10 +285,11 @@ class FitGroup(Fit):
 
                     todo.append((target, target.params_dict2array(params_dict_fit)))
 
-                target_values += list(parallel._map(self._eval_target, todo,
-                                                    chunksize=self.fit.likelihood_chunksize))
+                imap = parallel._map(self._eval_target, todo,
+                                     chunksize=self.fit.likelihood_chunksize,
+                                     )
+                target_values = np.array([penalty] + list(imap))
 
-                target_values = np.array(target_values)
                 total = np.sum(target_values)
                 if np.any(np.append(target_values, total) > self.fit.max_penalty): # pragma: no cover
                     return self.max_penalty # prevent "max penalty hopping"

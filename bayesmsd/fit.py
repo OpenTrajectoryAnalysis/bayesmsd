@@ -574,6 +574,7 @@ msdfun(dt,
 
             if len(self.params_marginalized) > 0:
                 self.margev_fit = copy(self.fit) # shallow, to prevent data copying
+                self.margev_fit.likelihood_chunksize = -1
 
                 self.margev_fit.parameters = deepcopy(fit.parameters) # so we can override
                 for name in self.params_marginalized:
@@ -664,7 +665,7 @@ msdfun(dt,
                 else:
                     for name, val in zip(self.params_free, params_array):
                         self.margev_fit.parameters[name].fix_to = val
-                    logL = self.margev_fit.evidence()
+                    logL = self.margev_fit.evidence(likelihood_chunksize=self.fit.likelihood_chunksize)
 
                 return (- logL
                         - self.fit.logprior(params_prior)
@@ -783,7 +784,7 @@ msdfun(dt,
         bar = tqdm(disable = not show_progress)
         def callback(x):
             bar.update()
-        
+
         # Go!
         all_res = []
         with np.errstate(all='raise'):
