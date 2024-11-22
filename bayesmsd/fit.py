@@ -575,7 +575,6 @@ msdfun(dt,
 
             if len(self.params_marginalized) > 0:
                 self.margev_fit = copy(self.fit) # shallow, to prevent data copying
-                self.margev_fit.likelihood_chunksize = -1
 
                 self.margev_fit.parameters = deepcopy(fit.parameters) # so we can override
                 for name in self.params_marginalized:
@@ -695,7 +694,14 @@ msdfun(dt,
 
                 for name, val in zip(self.params_free, params_array):
                     self.margev_fit.parameters[name].fix_to = val
-                ev = self.margev_fit.evidence(likelihood_chunksize=self.likelihood_chunksize)
+
+                ev_chunksize = self.likelihood_chunksize
+                if len(self.params_marginalized) <= 1:
+                    # switch off parallelization in evidence, since it would be
+                    # at most 2 parallel evaluations anyways; this will allow
+                    # margev_fit to parallelize its likelihood
+                    ev_chunksize = -1
+                ev = self.margev_fit.evidence(likelihood_chunksize=ev_chunksize)
 
                 return (- ev
                         - self.fit.logprior(params_prior)
@@ -1091,7 +1097,8 @@ msdfun(dt,
 
         # (potentially parallel) likelihood evaluations
         neg_logL = self.MinTarget(self)
-        neg_logL.likelihood_chunksize = -1 # no nested parallelization
+        if parallel._chunksize >= 0:
+            neg_logL.likelihood_chunksize = -1 # no nested parallelization
         def eval_log_likelihood(ilist):
             # ilist : (N, len(xi)), dtype=int
             #     indices into xi
