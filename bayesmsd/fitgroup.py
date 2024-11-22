@@ -229,7 +229,7 @@ class FitGroup(Fit):
             # - self.params_to_constant
             # - self.params_to_other
             # - self.params_to_callable
-            del self.paramnames_prior # taken care of explicitly below
+            self.paramnames_prior = [] # priors are taken care of by the component fits (see below)
 
             try:
                 adjust_prior_for_fixed_values = kwargs['adjust_prior_for_fixed_values']
@@ -266,7 +266,7 @@ class FitGroup(Fit):
             target, params = target_and_params
             return target(params)
 
-        def __call__(self, params_array):
+        def eval_atomic(self, params_array):
             params_dict = self.params_array2dict(params_array)
 
             penalty = self.fit._penalty(params_dict)

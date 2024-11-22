@@ -312,8 +312,11 @@ class TestRouseLoci(myTestCase):
         res['params']['log(J) (dim 0)'] = 100
         target = fit.MinTarget(fit)
         logL = target(target.params_dict2array(res['params']))
-
         self.assertTrue(np.isfinite(logL))
+
+        res['params']['log(J) (dim 0)'] = np.nan
+        with self.assertRaises(ValueError):
+            target(target.params_dict2array(res['params']))
 
     def testEvidence(self):
         fit = bayesmsd.lib.TwoLocusRouseFit([self.data[0].dims([0])])
@@ -469,6 +472,14 @@ class TestFitGroup(myTestCase):
         with nl.Parallelize(2):
             ev = self.fitgroup.evidence(likelihood_chunksize=100)
         self.assertTrue(np.isfinite(ev))
+
+# This takes quite long to execute; the idea was to check that FitGroup runs with marginalized parameters
+#     def test_marginalization(self):
+#         self.fitgroup.parameters['a log(αΓ) (dim 0)'].fix_to = 0
+#         self.fitgroup.parameters['a α (dim 0)'].fix_to = '<marginalize>'
+#         self.assertTrue(len(self.fitgroup.independent_parameters()), 0)
+#         ev = self.fitgroup.evidence() # should just evaluate once
+#         self.assertTrue(np.isfinite(ev))
     
     def test_logprior(self):
         params = {

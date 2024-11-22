@@ -631,9 +631,9 @@ msdfun(dt,
             """
             return np.array([params[name] for name in self.params_free])
 
-        def __call__(self, params_array):
+        def eval_atomic(self, params_array):
             """
-            Actual minimzation target
+            Evaluate likelihood, once all parameters are known (no marginalization)
 
             This function evaluates penalty, prior, and likelihood for the
             current parameters and returns the negative of their sum. If
@@ -651,26 +651,54 @@ msdfun(dt,
             params = self.params_array2dict(params_array)
             params_prior = {name : params[name] for name in self.paramnames_prior}
 
+            for name, val in params.items():
+                if np.isnan(val):
+                    raise ValueError(f"Got NaN value for parameter '{name}'")
+
             penalty = self.fit._penalty(params)
             if penalty < 0: # infeasible
                 return self.fit.max_penalty
             else:
                 self.fit.data.restoreSelection(self.fit.data_selection)
-
-                if self.margev_fit is None:
-                    logL = GP.ds_logL(self.fit.data,
-                                      self.fit.ss_order,
-                                      self.fit.params2msdm(params),
-                                      chunksize=self.likelihood_chunksize,
-                                      )
-                else:
-                    for name, val in zip(self.params_free, params_array):
-                        self.margev_fit.parameters[name].fix_to = val
-                    logL = self.margev_fit.evidence(likelihood_chunksize=self.likelihood_chunksize)
+                logL = GP.ds_logL(self.fit.data,
+                                  self.fit.ss_order,
+                                  self.fit.params2msdm(params),
+                                  chunksize=self.likelihood_chunksize,
+                                  )
 
                 return (- logL
                         - self.fit.logprior(params_prior)
                         + penalty
+                        - self.offset
+                        )
+
+        def __call__(self, params_array):
+            """
+            Actual minimzation target
+
+            Recurses if parameters are marginalized; otherwise just calls
+            `eval_atomic`.
+
+            Parameters
+            ----------
+            params_array : np.ndarray
+
+            Returns
+            -------
+            float
+            """
+            if self.margev_fit is None:
+                return self.eval_atomic(params_array)
+            else:
+                params = self.params_array2dict(params_array)
+                params_prior = {name : params[name] for name in self.paramnames_prior}
+
+                for name, val in zip(self.params_free, params_array):
+                    self.margev_fit.parameters[name].fix_to = val
+                ev = self.margev_fit.evidence(likelihood_chunksize=self.likelihood_chunksize)
+
+                return (- ev
+                        - self.fit.logprior(params_prior)
                         - self.offset
                         )
 
