@@ -317,9 +317,20 @@ class TestRouseLoci(myTestCase):
 
     def testEvidence(self):
         fit = bayesmsd.lib.TwoLocusRouseFit([self.data[0].dims([0])])
-        for dim in range(fit.d):
-            fit.parameters[f"log(σ²) (dim {dim})"].fix_to = -np.inf 
+        fit.parameters[f"log(σ²) (dim 0)"].fix_to = -np.inf 
         ev = fit.evidence()
+        self.assertTrue(np.isfinite(ev))
+
+        # If a fit has no free parameters (which might happen, e.g. with
+        # marginalization), evidence() should just return the likelihood
+        fit.parameters[f"log(Γ) (dim 0)"].fix_to = '<marginalize>'
+        fit.parameters[f"log(J) (dim 0)"].fix_to = 0
+        self.assertEqual(len(fit.independent_parameters()), 0)
+        res = fit.run()
+        self.assertTrue(np.isfinite(res['logL']))
+        ev = fit.evidence()
+        self.assertTrue(np.isfinite(ev))
+
 
     def testEvidence_3D(self):
         fit = bayesmsd.lib.TwoLocusRouseFit([self.data[0]])

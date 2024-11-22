@@ -825,7 +825,13 @@ msdfun(dt,
                     kwargs.update(step)
                     
                 try:
-                    fitres = optimize.minimize(min_target, p0, **kwargs)
+                    if len(p0) > 0:
+                        fitres = optimize.minimize(min_target, p0, **kwargs)
+                    else:
+                        fitres = lambda : None # same trick as below
+                        fitres.fun = min_target(p0)
+                        fitres.x = p0
+                        fitres.success = True
                 except GP.BadCovarianceError as err: # pragma: no cover
                     self.vprint(2, "BadCovarianceError:", err)
                     fitres = lambda: None # hack: lambdas allow free assignment of attributes
@@ -958,6 +964,10 @@ msdfun(dt,
         reasonable; reasonable people might differ.
         """
         names = self.independent_parameters()
+        if len(names) == 0:
+            # no free parameters; just return likelihood
+            return self.MinTarget(self)(np.array([]))
+
         # Note: line_profiler shows that chi2.ppf() is quite slow; amounting to
         # ~5% of total runtime on an example trajectory
         DlogL = stats.chi2(df=len(names)).ppf(f_integrate)/2
