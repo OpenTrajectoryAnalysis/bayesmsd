@@ -590,8 +590,8 @@ class Profiler():
         c_fun = self.point_estimate['logL'] - c_pL - self.LR_target
 
         # Figure out which side of the bracket to move inwards
-        i_move = 0 if a_fun*c_fun > 0 else 1
-        assert [a_fun, b_fun][1-i_move]*c_fun <= 0
+        i_move = int(np.sign(b_fun) == np.sign(c_fun))
+        assert np.sign([a_fun, b_fun][1-i_move]) != np.sign(c_fun)
         
         # Update the bracket
         bracket[i_move] = c

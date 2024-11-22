@@ -242,7 +242,7 @@ class FitGroup(Fit):
                 kwarg_fix_values = None
             if kwarg_fix_values is None:
                 kwarg_fix_values = {}
-            kwarg_fixed_params = [name for name, val in kwarg_fix_values if val is not None]
+            kwarg_fixed_params = [name for name, val in kwarg_fix_values.items() if val is not None]
 
             # Assemble MinTarget for each fit
             self.mintargets = {}
@@ -293,6 +293,6 @@ class FitGroup(Fit):
 
                 total = np.sum(target_values)
                 if np.any(np.append(target_values, total) > self.fit.max_penalty): # pragma: no cover
-                    return self.max_penalty # prevent "max penalty hopping"
+                    return self.fit.max_penalty # prevent "max penalty hopping"
                 else:
                     return total - self.offset
