@@ -145,25 +145,6 @@ class GP: # just a namespace
                                  for msd, m in msd_ms]
                            for dt in dts_u}
 
-            if ss_order == 0.5:
-                for msd_m in msd_m_by_dt.values():
-                    for msd, _ in msd_m:
-                        # Numerical issues with dynamic range
-                        # If the plateau for a level 0 MSD is way higher than the
-                        # first point, the covariance matrix will be basically flat
-                        # (at the plateau value), with minor modulations (on the
-                        # order of the first MSD point); this gets hard to
-                        # represent accurately numerically and thus leads to
-                        # BadCovarianceErrors. For ss_order = 0 this is fine,
-                        # because it just gives a flat covariance, which is fine.
-                        # For ss_order = 0.5, however, we will subtract that large
-                        # base value and thus need the modulations to be precise;
-                        # but this also means that we don't care much about where
-                        # exactly the plateau is in the first place. So: if the
-                        # dynamic range gets too big and ss_order == 0.5, just trim
-                        # it down.
-                        msd[-1] = min(msd[-1], 1e10*msd[1])
-
         todo = len(data)*d*[None]
         for i, (traj, dt) in enumerate(zip(data, dts)):
             msd_m = msd_m_by_dt[dt]

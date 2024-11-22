@@ -194,6 +194,14 @@ class TestDiffusive(myTestCase):
         self.assertAlmostEqual(logL_05_py, logL_05_cy)
         self.assertAlmostEqual(logL_1_py, logL_1_cy)
 
+        p0 = GP_logL_py(np.array([5]), 0, msd)
+        self.assertTrue(np.isfinite(p0))
+
+        # msd2C_ss0 does not give the actual covariance matrix C in the code;
+        # so check by hand
+        C = bayesmsd.gp.msd2C_ss0(msd, np.arange(10))
+        _ = np.linalg.cholesky(C) # check positive definite
+
     def test_penalty(self):
         fit = bayesmsd.lib.NPXFit(self.data, ss_order=1)
         params = {

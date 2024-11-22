@@ -30,10 +30,14 @@ ctypedef unsigned long SIZE_t
 @cython.wraparound(False)
 cdef void msd2C_ss0(FLOAT_t[::1]    msd,
                     SIZE_t[::1]     ti,
-                    FLOAT_t[:, ::1] C,
+                    FLOAT_t[::1]    fn,
+                    FLOAT_t[:, ::1] Cn,
                    ):
     """
     0th order steady state covariance from MSD.
+
+    Note that we calculate the covariance decomposed into first and subsequent
+    data points; this is numerically more stable.
 
     Parameters
     ----------
@@ -41,24 +45,37 @@ cdef void msd2C_ss0(FLOAT_t[::1]    msd,
         msd[T-1] should be MSD(∞)
     ti : (N,) memoryview / array (integer)
         times at which there are data in the trajectory; ti[n] < T-1 forall n
+    fn : (N,) memoryview
+        will be overwritten; X[0]*fn is the expected value for subsequent data
+        points
     C : (N, N) memoryview
-        will be overwritten with the covariance matrix; only upper triangular
-        part and diagonal (i.e. FORTRAN lower triangular)
+        will be overwritten with the covariance matrix for subsequent data
+        points; only upper triangular part and diagonal (i.e. FORTRAN lower
+        triangular)
     """
     cdef SIZE_t m, n, T=msd.shape[0], maxti=0
 
     for m in range(ti.shape[0]):
-        if ti[m] > maxti:
-            maxti = ti[m]
+        ti[m] = abs(ti[m]-ti[0])
+    maxti = ti[ti.shape[0]-1] # we rely on ti being sorted
 
-    assert C.shape[0] >= ti.shape[0]
-    assert C.shape[1] >= ti.shape[0]
+    assert Cn.shape[0] >= ti.shape[0]-1
+    assert Cn.shape[1] >= ti.shape[0]-1
     assert T >= maxti+1
 
-    for m in range(ti.shape[0]):
-        C[m, m] = 0.5*msd[T-1]
+    # &p_C0 = 0.5*msd[T-1] # not needed anymore
+    for m in range(1, ti.shape[0]):
+        fn[m-1] = msd[ti[m]]/msd[T-1]
+    for m in range(1, ti.shape[0]):
+        Cn[m-1, m-1] = msd[ti[m]] * (1 - 0.5*fn[m-1])
         for n in range(m+1, ti.shape[0]):
-            C[m, n] = 0.5*( msd[T-1] - msd[abs(ti[m] - ti[n])] )
+            Cn[m-1, n-1] = 0.5*(  msd[ti[m]] + msd[ti[n]]
+                                - msd[ti[n]-ti[m]]         # ti is sorted
+                                - msd[ti[m]]*fn[n-1]
+                                )
+
+    for m in range(fn.shape[0]):
+        fn[m] = 1-fn[m]
 
 @cython.boundscheck(False)
 @cython.wraparound(False)
@@ -181,35 +198,38 @@ def logL(trace, ss_order, msd, mean=0):
     --------
     ds_logL
     """
-    cdef FLOAT_t[:, ::1] C, c
-    cdef FLOAT_t[::1]    X, x
+    cdef FLOAT_t[:, ::1] C
+    cdef FLOAT_t[::1]    X, x, fn
+    cdef FLOAT_t         C0, p0
 
     ti = np.nonzero(~np.isnan(trace))[0].astype(np.uint)
-    cdef SIZE_t N = len(ti)
+    cdef SIZE_t N = len(ti), i
 
     if ss_order < 1:
         X = trace[ti] - mean
-        C = np.empty((N, N), dtype=float)
-        msd2C_ss0(msd, ti, C)
+        C0 = 0.5*msd[-1]
 
-        if ss_order == 0.5: # condition on first data point
-            c = np.empty((N-1, N-1), dtype=float)
-            x = np.empty(N-1, dtype=float)
+        # likelihood of the first data point
+        p0 = 0
+        if ss_order == 0:
+            p0 = 0.5*( X[0]**2/C0 - log(C0) - LOG_2PI )
+        if len(X) == 1:
+            return p0
 
-            for i in range(N-1):
-                x[i] = X[i+1] - X[0] * C[0, i+1]/C[0, 0]
-                for j in range(i, N-1):
-                    c[i, j] = C[i+1, j+1] - C[0, i+1]*C[0, j+1]/C[0, 0]
+        fn = np.empty(N-1, dtype=float)
+        C = np.empty((N-1, N-1), dtype=float)
+        msd2C_ss0(msd, ti, fn, C)
 
-            C = c
-            X = x
+        x = np.empty(N-1, dtype=float)
+        for i in range(N-1):
+            x[i] = X[i+1] - X[0]*fn[i]
+        return p0 + _core_logL(C, x, x.copy())
 
     elif ss_order == 1:
         X = np.diff(trace[ti]) - mean*np.diff(ti)
         C = np.empty((N-1, N-1), dtype=float)
         msd2C_ss1(msd, ti, C)
+        return _core_logL(C, X, X.copy())
 
     else: # pragma: no cover
         raise ValueError(f"Invalid steady state order: {ss_order}")
-
-    return _core_logL(C, X, X.copy())

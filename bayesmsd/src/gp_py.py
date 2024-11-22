@@ -1,7 +1,7 @@
 import numpy as np
 from scipy import linalg
 
-def msd2C_ss0(msd, ti):
+def msd2C_ss0(msd, ti, split=False):
     """
     0th order steady state covariance from MSD. For internal use.
 
@@ -10,6 +10,10 @@ def msd2C_ss0(msd, ti):
     msd : np.ndarray
     ti : np.ndarray, dtype=int
         times at which there are data in the trajectory
+    split : bool, optional
+        if ``True``, return the covariance split by first and other data
+        points. This can be useful for numerical stability (and ``ss_order =
+        0.5``)
 
     Returns
     -------
@@ -20,7 +24,18 @@ def msd2C_ss0(msd, ti):
     --------
     msd2C_fun
     """
-    return 0.5*( msd[-1] - msd[np.abs(ti[:, None] - ti[None, :])] )
+    if split:
+        ti = np.abs(ti[1:]-ti[0])
+
+        # C0 = 0.5*msd[-1] # not necessary anymore
+        fn = msd[ti]/msd[-1]
+        Cn = 0.5*(  msd[ti, None] + msd[None, ti]
+                  - msd[np.abs(ti[:, None] - ti[None, :])]
+                  - fn[:, None]*msd[None, ti]
+                  )
+        return 1-fn, Cn
+    else:
+        return 0.5*( msd[-1] - msd[np.abs(ti[:, None] - ti[None, :])] )
 
 def msd2C_ss1(msd, ti):
     """
@@ -108,19 +123,23 @@ def logL(trace, ss_order, msd, mean=0):
     
     if ss_order < 1:
         X = trace[ti] - mean
-        C = msd2C_ss0(msd, ti)
+        C0 = 0.5*msd[-1]
 
-        if ss_order == 0.5: # condition on first data point
-            mu = X[0] * C[1:, 0]/C[0, 0]
-            X = X[1:] - mu
-            C = C - C[:, [0]]*C[[0], :]/C[0, 0]
-            C = C[1:, 1:]
+        # likelihood of the first data point
+        p0 = 0
+        if ss_order == 0:
+            p0 = 0.5*( X[0]**2/C0 - np.log(C0) ) - LOG_SQRT_2_PI
+        if len(X) == 1:
+            return p0
+
+        fn, Cn = msd2C_ss0(msd, ti, split=True)
+        X = X[1:] - X[0]*fn
+        return p0 + _core_logL(Cn, X)
 
     elif ss_order == 1:
         X = np.diff(trace[ti]) - mean*np.diff(ti)
         C = msd2C_ss1(msd, ti)
+        return _core_logL(C, X)
 
     else: # pragma: no cover
         raise ValueError(f"Invalid steady state order: {ss_order}")
-
-    return _core_logL(C, X)
