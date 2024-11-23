@@ -1010,6 +1010,7 @@ msdfun(dt,
 
         # Run profiler
         profiler = Profiler(self, profiling=False, conf=conf, conf_tol=conf_tol)
+        profiler.verbosity = 0 # suppress everything, would just be confusing anyways
         mci = profiler.find_MCI(show_progress=show_progress)
         assert set(mci.keys()) == set(names)
         
