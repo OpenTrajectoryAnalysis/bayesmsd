@@ -408,6 +408,11 @@ class NPXFit(Fit): # NPX = Noise + Powerlaw + X (i.e. spline)
         fractional exposure time (i.e. exposure time as fraction of the time
         between frames). The resulting motion blur will be taken into account
         in the fit.
+    parametrization : {'(log(Γ), α)', '(log(αΓ), α)'}
+        how to parametrize the powerlaw part of the MSD. The parametrization in
+        terms of ``(log(αΓ), α)`` can come in handy in cases with motion blur
+        and α so low as to be (potentially) not identifiable. Otherwise
+        ``(log(Γ), α)`` is usually preferred
 
     Attributes
     ----------
@@ -453,6 +458,7 @@ class NPXFit(Fit): # NPX = Noise + Powerlaw + X (i.e. spline)
     def __init__(self, data, ss_order, n=0,
                  previous_NPXFit_and_result=None,
                  motion_blur_f=0,
+                 parametrization='(log(Γ), α)',
                 ):
         super().__init__(data)
         self.motion_blur_f = motion_blur_f
@@ -491,6 +497,8 @@ class NPXFit(Fit): # NPX = Noise + Powerlaw + X (i.e. spline)
                                   linearization=Linearize.Exponential()),
             'α'       : Parameter((0.01, 1.99), # stay away from bounds, since covariance becomes singular, leading to numerical issues when getting close
                                   linearization=Linearize.Bounded()),
+            'log(αΓ)' : Parameter((-np.inf, _MAX_LOG),
+                                  linearization=Linearize.Exponential()),
         }
 
         for i in range(self.n+1):
@@ -516,6 +524,15 @@ class NPXFit(Fit): # NPX = Noise + Powerlaw + X (i.e. spline)
 
         del templates
 
+        if parametrization == '(log(Γ), α)':
+            for dim in range(self.d):
+                self.parameters[f'log(αΓ) (dim {dim})'].fix_to = self.fix_aG
+        elif parametrization == '(log(αΓ), α)':
+            for dim in range(self.d):
+                self.parameters[f'log(Γ) (dim {dim})'].fix_to = self.fix_G
+        else:
+            raise ValueError(f"Invalid parametrization: {parametrization}") # pragma: no cover
+
         self.improper_priors = [name for name in self.parameters
                                 if name.startswith('log(')
                                 or name.startswith('y')
@@ -532,6 +549,18 @@ class NPXFit(Fit): # NPX = Noise + Powerlaw + X (i.e. spline)
         self.prev_fit = previous_NPXFit_and_result # for (alternative) initialization
         if self.prev_fit is not None and not self.prev_fit[0].d == self.d:
             raise ValueError(f"Previous NPXFit has different number of dimensions ({self.prev_fit[0].d}) from the current data set ({self.d}).")
+
+    @staticmethod
+    def fix_aG(params, name):
+        # name = 'log(αΓ) (dim d)'
+        d = int(name[13:-1])
+        return params[f'log(Γ) (dim {d})'] + np.log(params[f'α (dim {d})'])
+
+    @staticmethod
+    def fix_G(params, name):
+        # name = 'log(Γ) (dim d)'
+        d = int(name[12:-1])
+        return params[f'log(αΓ) (dim {d})'] - np.log(params[f'α (dim {d})'])
 
     def logprior(self, params):
         nx = len([name for name in params if name.startswith('x')]) 
@@ -729,7 +758,7 @@ class NPXFit(Fit): # NPX = Noise + Powerlaw + X (i.e. spline)
             csps = fit._params2csp(res['params'])
 
             for dim in range(self.d):
-                for name in ['log(σ²)', 'log(Γ)', 'α', 'm1']:
+                for name in ['log(σ²)', 'log(Γ)', 'α', 'log(αΓ)', 'm1']:
                     params[f"{name} (dim {dim})"] = res['params'][f"{name} (dim {dim})"]
 
                 if self.n > 0:
@@ -779,6 +808,7 @@ class NPXFit(Fit): # NPX = Noise + Powerlaw + X (i.e. spline)
                 params[f"log(σ²) (dim {dim})"] = np.log(e_msd[dt_valid[0]]/2)
                 params[ f"log(Γ) (dim {dim})"] = logG
                 params[      f"α (dim {dim})"] = alpha
+                params[f"log(αΓ) (dim {dim})"] = logG + np.log(alpha)
 
             if self.n > 0:
                 x0, logt0, y0, dcdx0 = self._first_spline_point(0.5, logG, alpha)
@@ -906,16 +936,23 @@ class TwoLocusRouseFit(Fit):
         fractional exposure time (i.e. exposure time as fraction of the time
         between frames). The resulting motion blur will be taken into account
         in the fit.
+    parametrization : {'(log(Γ), log(J))', '(log(τ), log(J))', '(log(Γ), log(τ))'}
+        how to parametrize the MSD. By default, we parametrize in terms of Γ
+        and J, since those independently give the short and long time
+        asymptotes. Sometimes using τ and J can be more intuitive, because they
+        have reasonable units. The parametrization in terms of Γ and τ is added
+        mostly for completeness.
     """
     def __init__(self, data,
                  motion_blur_f=0,
+                 parametrization='(log(Γ), log(J))',
                 ):
         super().__init__(data)
         self.motion_blur_f = motion_blur_f
         
         self.ss_order = 0
         
-        for name in ['log(σ²)', 'log(Γ)', 'log(J)']:
+        for name in ['log(σ²)', 'log(Γ)', 'log(τ)', 'log(J)']:
             for dim in range(self.d):
                 dim_name = f"{name} (dim {dim})"
                 self.parameters[dim_name] = Parameter((-_MAX_LOG, _MAX_LOG),
@@ -926,11 +963,41 @@ class TwoLocusRouseFit(Fit):
                 if name != 'log(σ²)' and dim > 0:
                     self.parameters[dim_name].fix_to = f"{name} (dim 0)"
 
+        if parametrization == '(log(τ), log(J))':
+            for dim in range(self.d):
+                self.parameters[f'log(Γ) (dim {dim})'].fix_to = self.fix_G
+        elif parametrization == '(log(Γ), log(J))':
+            for dim in range(self.d):
+                self.parameters[f'log(τ) (dim {dim})'].fix_to = self.fix_tau
+        elif parametrization == '(log(Γ), log(τ))':
+            for dim in range(self.d):
+                self.parameters[f'log(J) (dim {dim})'].fix_to = self.fix_J
+        else:
+            raise ValueError(f"Invalid parametrization: {parametrization}") # pragma: no cover
+
         self.improper_priors = [name for name in self.parameters
                                 if name.startswith('log(') # that's all of them
                                 ]
 
         self.constraints = [] # Don't need to check Cpositive, will always be true for Rouse MSDs
+
+    @staticmethod
+    def fix_G(params, name):
+        # name = 'log(Γ) (dim d)'
+        d = int(name[12:-1])
+        return params[f'log(J) (dim {d})'] - 0.5*params[f'log(τ) (dim {d})']
+
+    @staticmethod
+    def fix_tau(params, name):
+        # name = 'log(τ) (dim d)'
+        d = int(name[12:-1])
+        return 2*params[f'log(J) (dim {d})'] - 2*params[f'log(Γ) (dim {d})']
+
+    @staticmethod
+    def fix_J(params, name):
+        # name = 'log(J) (dim d)'
+        d = int(name[12:-1])
+        return params[f'log(Γ) (dim {d})'] + 0.5*params[f'log(τ) (dim {d})']
 
     def logprior(self, params):
         return 0 # all priors are improper
@@ -986,6 +1053,7 @@ class TwoLocusRouseFit(Fit):
         for dim in range(self.d):
             params[f"log(σ²) (dim {dim})"] = np.log(noise2)
             params[ f"log(Γ) (dim {dim})"] = np.log(G)
+            params[ f"log(τ) (dim {dim})"] = 2*np.log(J) - 2*np.log(G)
             params[ f"log(J) (dim {dim})"] = np.log(J)
 
         m1s = np.nanmean(np.concatenate([traj[:] for traj in self.data]), axis=0)
@@ -1128,11 +1196,7 @@ class NPFit(Fit):
     """
     Fit a powerlaw plus noise
 
-    This is a simpler version of `NPXFit`, getting rid of the spline part. Note
-    that it also uses a slightly different parametrization: ``(log(αΓ), α)``
-    instead of ``(Γ, α)``. This is because the former often behaves better in
-    cases where ``α`` is not identifiable (low). In that case this new
-    parametrization keeps ``Γ`` constant and thus identifiable.
+    This is a simpler version of `NPXFit`, getting rid of the spline part.
 
     Parameters
     ----------
@@ -1142,8 +1206,13 @@ class NPFit(Fit):
         fractional exposure time (i.e. exposure time as fraction of the time
         between frames). The resulting motion blur will be taken into account
         in the fit.
+    parametrization : {'(log(Γ), α)', '(log(αΓ), α)'}
+        how to parametrize the MSD. The parametrization in terms of ``(log(αΓ),
+        α)`` can come in handy in cases with motion blur and α so low as to be
+        (potentially) not identifiable. Otherwise ``(log(Γ), α)`` is usually
+        preferred
     """
-    def __init__(self, data, motion_blur_f=0):
+    def __init__(self, data, motion_blur_f=0, parametrization='(log(Γ), α)'):
         super().__init__(data)
         self.motion_blur_f = motion_blur_f
         
@@ -1155,10 +1224,12 @@ class NPFit(Fit):
         templates = {
             'log(σ²)' : Parameter((-np.inf, _MAX_LOG),
                                   linearization=Linearize.Exponential()),
-            'log(αΓ)' : Parameter((-np.inf, _MAX_LOG),
+            'log(Γ)'  : Parameter((-_MAX_LOG, _MAX_LOG),
                                   linearization=Linearize.Exponential()),
             'α'       : Parameter((0.01, 1.99), # stay away from bounds, since covariance becomes singular, leading to numerical issues when getting close
                                   linearization=Linearize.Bounded()),
+            'log(αΓ)' : Parameter((-np.inf, _MAX_LOG),
+                                  linearization=Linearize.Exponential()),
         }
 
         # Expand dimensions and remove templates
@@ -1174,11 +1245,32 @@ class NPFit(Fit):
 
         del templates
 
+        if parametrization == '(log(Γ), α)':
+            for dim in range(self.d):
+                self.parameters[f'log(αΓ) (dim {dim})'].fix_to = self.fix_aG
+        elif parametrization == '(log(αΓ), α)':
+            for dim in range(self.d):
+                self.parameters[f'log(Γ) (dim {dim})'].fix_to = self.fix_G
+        else:
+            raise ValueError(f"Invalid parametrization: {parametrization}") # pragma: no cover
+
         self.improper_priors = [name for name in self.parameters
                                 if name.startswith('log(')
                                 ]
             
         self.constraints = []
+
+    @staticmethod
+    def fix_aG(params, name):
+        # name = 'log(αΓ) (dim d)'
+        d = int(name[13:-1])
+        return params[f'log(Γ) (dim {d})'] + np.log(params[f'α (dim {d})'])
+
+    @staticmethod
+    def fix_G(params, name):
+        # name = 'log(Γ) (dim d)'
+        d = int(name[12:-1])
+        return params[f'log(αΓ) (dim {d})'] - np.log(params[f'α (dim {d})'])
 
     def logprior(self, params):
         names = [name for name in params if name.startswith('α')]
@@ -1189,13 +1281,13 @@ class NPFit(Fit):
         for dim in range(self.d):
             with np.errstate(under='ignore'):
                 noise2 = np.exp(params[f"log(σ²) (dim {dim})"])
-                aG     = np.exp(params[f"log(αΓ) (dim {dim})"])
+                G      = np.exp(params[ f"log(Γ) (dim {dim})"])
             alpha = params[f"α (dim {dim})"]
             
             @deco.MSDfun
             @deco.imaging(noise2=noise2, f=self.motion_blur_f, alpha0=alpha)
-            def msd(dt, aG=aG, alpha=alpha):
-                return (aG/alpha)*(dt**alpha)
+            def msd(dt, G=G, alpha=alpha):
+                return G*(dt**alpha)
             
             msdm.append((msd, params[f'm1 (dim {dim})']))
             
@@ -1218,8 +1310,9 @@ class NPFit(Fit):
 
         for dim in range(self.d):
             params[f"log(σ²) (dim {dim})"] = logs2
-            params[f"log(αΓ) (dim {dim})"] = logG + np.log(alpha)
+            params[ f"log(Γ) (dim {dim})"] = logG
             params[      f"α (dim {dim})"] = alpha
+            params[f"log(αΓ) (dim {dim})"] = logG + np.log(alpha)
 
         m1s = []
         for traj in self.data:

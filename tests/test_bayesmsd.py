@@ -152,6 +152,14 @@ class TestDiffusive(myTestCase):
         fit.parameters['log(σ²) (dim 2)'].fix_to = lambda p : p['log(σ²) (dim 1)']
         res = fit.run(verbosity=0)
 
+        fit = bayesmsd.lib.NPXFit(self.data, ss_order=1, n=0, parametrization='(log(αΓ), α)')
+        fit.parameters['log(σ²) (dim 0)'].fix_to = -np.inf
+        fit.parameters['log(σ²) (dim 1)'].fix_to = 'log(σ²) (dim 0)'
+        fit.parameters['log(σ²) (dim 2)'].fix_to = lambda p : p['log(σ²) (dim 1)']
+        res2 = fit.run(verbosity=0)
+
+        self.assertAlmostEqual(res['logL'], res2['logL'], delta=0.01)
+
         fit = bayesmsd.lib.NPXFit(self.data, ss_order=1, n=1)
         fit.parameters['log(σ²) (dim 0)'].fix_to = -np.inf
         fit.parameters['log(σ²) (dim 1)'].fix_to = 'log(σ²) (dim 0)'
@@ -294,13 +302,25 @@ class TestRouseLoci(myTestCase):
 
         # no localization error
         for dim in range(fit.d):
-            fit.parameters[f"log(σ²) (dim {dim})"].fix_to = -np.inf 
+            fit.parameters[f"log(σ²) (dim {dim})"].fix_to = -np.inf
 
         res = fit.run(full_output=True, optimization_steps=(dict(method='Nelder-Mead', options={'fatol' : 0.1, 'xatol' : 0.01}),))[-1][0]
 
         self.assertEqual(res['params']['log(σ²) (dim 0)'], -np.inf)
         self.assertSetEqual(set(fit.independent_parameters()),
                             {'log(Γ) (dim 0)', 'log(J) (dim 0)'})
+
+        fit = bayesmsd.lib.TwoLocusRouseFit(self.data, motion_blur_f=1, parametrization='(log(τ), log(J))')
+        for dim in range(fit.d):
+            fit.parameters[f"log(σ²) (dim {dim})"].fix_to = -np.inf
+        res2 = fit.run()
+        self.assertAlmostEqual(res['logL'], res2['logL'], delta=0.01)
+
+        fit = bayesmsd.lib.TwoLocusRouseFit(self.data, motion_blur_f=1, parametrization='(log(Γ), log(τ))')
+        for dim in range(fit.d):
+            fit.parameters[f"log(σ²) (dim {dim})"].fix_to = -np.inf
+        res2 = fit.run()
+        self.assertAlmostEqual(res['logL'], res2['logL'], delta=0.01)
 
     def testSS05trimming(self):
         fit = bayesmsd.lib.TwoLocusRouseFit(self.data)
@@ -447,7 +467,7 @@ class TestFitGroup(myTestCase):
         fits_dict = {}
         for tag, (_, _, f) in dt_noise_f.items():
             data.makeSelection(tag)
-            fit = bayesmsd.lib.NPFit(data, motion_blur_f=f)
+            fit = bayesmsd.lib.NPFit(data, motion_blur_f=f, parametrization='(log(αΓ), α)')
             fit.parameters['log(σ²) (dim 1)'].fix_to = 'log(σ²) (dim 0)'
             fits_dict[tag] = fit
 

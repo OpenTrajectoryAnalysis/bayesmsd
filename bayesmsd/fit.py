@@ -1117,7 +1117,7 @@ msdfun(dt,
             ilist = ilist[~ind_nans]
 
             paramlist = [neg_logL.params_dict2array(
-                            neg_logL.params_array2dict(len(names)*[None])
+                            neg_logL.params_array2dict(len(names)*[np.nan])
                             | dict(zip(names, x)))
                          for x in xlist]
 
