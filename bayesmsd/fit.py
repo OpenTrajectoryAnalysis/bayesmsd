@@ -608,7 +608,10 @@ msdfun(dt,
             for name, other in self.params_to_other:
                 params[name] = params[other]
             for name, fun in self.params_to_callable:
-                params[name] = fun(params)
+                try:
+                    params[name] = fun(params, name=name)
+                except TypeError: # 'name' not a kwarg
+                    params[name] = fun(params)
 
             return params
 
