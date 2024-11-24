@@ -229,8 +229,15 @@ class TestDiffusive(myTestCase):
             'α (dim 2)'       : 1,
         }
 
-        params['α (dim 2)'] = 3 # out of bounds
+        params['α (dim 0)'] = 3 # out of bounds
         self.assertLess(fit._penalty(params), 0)
+
+        # test the mechanism for edge cases that _penalty() doesn't catch
+        fit.verbosity = 0 # suppress error message
+        fit._penalty = lambda x: 0
+        mt = fit.MinTarget(fit)
+        logL = mt(mt.params_dict2array(params))
+        self.assertEqual(logL, fit.max_penalty)
 
     def test_expand_fix_values(self):
         fit = bayesmsd.lib.NPXFit(self.data, ss_order=1, n=1)

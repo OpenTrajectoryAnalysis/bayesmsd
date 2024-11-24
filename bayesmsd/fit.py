@@ -664,11 +664,23 @@ msdfun(dt,
                 return self.fit.max_penalty
             else:
                 self.fit.data.restoreSelection(self.fit.data_selection)
-                logL = GP.ds_logL(self.fit.data,
-                                  self.fit.ss_order,
-                                  self.fit.params2msdm(params),
-                                  chunksize=self.likelihood_chunksize,
-                                  )
+                try:
+                    logL = GP.ds_logL(self.fit.data,
+                                      self.fit.ss_order,
+                                      self.fit.params2msdm(params),
+                                      chunksize=self.likelihood_chunksize,
+                                      )
+                except GP.BadCovarianceError as err:
+                    # This should not really happen
+                    # It means that the covariance matrix was not positive
+                    # definite, and its Fit's job to ensure that it is.
+                    # However, due to numerical inaccuracies (especially with
+                    # evidence() or the profiler, who explore wider ranges of
+                    # parameter space) or user error when implementing custom
+                    # Fits, this can still happen sometimes. We can attempt to
+                    # rescue it by just returning max_penalty.
+                    self.fit.vprint(1, "BadCovarianceError:", err)
+                    return self.fit.max_penalty
 
                 return (- logL
                         - self.fit.logprior(params_prior)
