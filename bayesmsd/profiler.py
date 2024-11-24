@@ -329,6 +329,8 @@ class Profiler():
             
         if 'init_from' not in fit_kw:
             fit_kw['init_from'] = self.best_estimate
+        if 'give_rough_marginal_mci' not in fit_kw:
+            fit_kw['give_rough_marginal_mci'] = True # don't waste runtime
         
         if self.point_estimate is None and fit_kw['init_from'] is None: # very first fit, so do simplex --> (gradient)
             res = self.fit.run(optimization_steps = ('simplex',),

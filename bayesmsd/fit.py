@@ -575,6 +575,7 @@ msdfun(dt,
 
             if len(self.params_marginalized) > 0:
                 self.margev_fit = copy(self.fit) # shallow, to prevent data copying
+                self.marg_ev_mci = (-np.inf, None) # remember best evaluation
 
                 self.margev_fit.parameters = deepcopy(fit.parameters) # so we can override
                 for name in self.params_marginalized:
@@ -583,6 +584,7 @@ msdfun(dt,
                     self.margev_fit.parameters[name].fix_to = np.nan
             else:
                 self.margev_fit = None # no marginalization to do
+                self.marg_ev_mci = (-np.inf, {})
 
         def params_array2dict(self, params_array):
             """
@@ -704,7 +706,12 @@ msdfun(dt,
                     # at most 2 parallel evaluations anyways; this will allow
                     # margev_fit to parallelize its likelihood
                     ev_chunksize = -1
-                ev = self.margev_fit.evidence(likelihood_chunksize=ev_chunksize)
+                ev, mci = self.margev_fit.evidence(likelihood_chunksize=ev_chunksize,
+                                                   return_mci=True,
+                                                   )
+
+                if ev > self.marg_ev_mci[0]: # remember best evaluation
+                    self.marg_ev_mci = (ev, mci)
 
                 return (- ev
                         - self.fit.logprior(params_prior)
@@ -744,6 +751,7 @@ msdfun(dt,
             maxfev=None,
             fix_values = None,
             adjust_prior_for_fixed_values=True,
+            give_rough_marginal_mci=False,
             full_output=False,
             show_progress=False,
            ):
@@ -773,6 +781,11 @@ msdfun(dt,
             While the former is "correct" in most cases, the latter is
             important if we want to explore the likelihood landscape around a
             previously found optimum, as the `Profiler` does.
+        give_rough_marginal_mci : bool
+            when marginalizing parameters, instead of doing a full run of the
+            profiler at the end, just return the profiler results from
+            evidence(). Note that the credible intervals will be less precise
+            on these; point estimates should be fine.
         full_output : bool
             Set to ``True`` to return the output dict (c.f. Returns) and the
             full output from ``scipy.optimize.minimize`` for each optimization
@@ -881,7 +894,10 @@ msdfun(dt,
                 else:
                     params = min_target.params_array2dict(fitres.x)
                     all_res.append(({'params' : params,
-                                     'marginalized' : min_target.profile_marginalized_params(params),
+                                     'marginalized' : (min_target.marg_ev_mci[1]
+                                                       if give_rough_marginal_mci else
+                                                       min_target.profile_marginalized_params(params)
+                                                       ),
                                      'logL' : -(fitres.fun+min_target.offset),
                                     }, fitres))
                     p0 = fitres.x
@@ -896,6 +912,7 @@ msdfun(dt,
 
     @parallel.chunky('likelihood_chunksize', -1)
     def evidence(self, show_progress=False,
+                 return_mci=False,
                  conf = 0.8,
                  conf_tol = 0.1,
                  n_cred = 10,
@@ -915,6 +932,10 @@ msdfun(dt,
         ----------
         show_progress : bool
             display progress bar(s)
+        return_mci : bool
+            return the results of the initial profiler run. Note that these are
+            conditional posterior and with imprecise confidence settings (see
+            `!conf` and `!conf_tol` below).
         conf : float
             confidence level for the initial `Profiler` run. Will usually be
             some not-too-high value.
@@ -1159,4 +1180,9 @@ msdfun(dt,
 
         # Integrate likelihood to find evidence
         with np.errstate(under='ignore'):
-            return special.logsumexp(logL + logprior)
+            ev = special.logsumexp(logL + logprior)
+
+        if return_mci:
+            return ev, mci
+        else:
+            return ev
