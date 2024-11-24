@@ -20634,7 +20634,7 @@ static PyObject *__pyx_pf_8bayesmsd_3bin_2gp_logL(CYTHON_UNUSED PyObject *__pyx_
  *         # likelihood of the first data point
  *         p0 = 0             # <<<<<<<<<<<<<<
  *         if ss_order == 0:
- *             p0 = 0.5*( X[0]**2/C0 - log(C0) - LOG_2PI )
+ *             p0 = -0.5*( X[0]**2/C0 + log(C0) + LOG_2PI )
  */
     __pyx_v_p0 = 0.0;
 
@@ -20642,7 +20642,7 @@ static PyObject *__pyx_pf_8bayesmsd_3bin_2gp_logL(CYTHON_UNUSED PyObject *__pyx_
  *         # likelihood of the first data point
  *         p0 = 0
  *         if ss_order == 0:             # <<<<<<<<<<<<<<
- *             p0 = 0.5*( X[0]**2/C0 - log(C0) - LOG_2PI )
+ *             p0 = -0.5*( X[0]**2/C0 + log(C0) + LOG_2PI )
  *         if len(X) == 1:
  */
     __pyx_t_9 = (__Pyx_PyInt_BoolEqObjC(__pyx_v_ss_order, __pyx_int_0, 0, 0)); if (unlikely((__pyx_t_9 < 0))) __PYX_ERR(0, 214, __pyx_L1_error)
@@ -20651,7 +20651,7 @@ static PyObject *__pyx_pf_8bayesmsd_3bin_2gp_logL(CYTHON_UNUSED PyObject *__pyx_
       /* "bayesmsd/src/gp.pyx":215
  *         p0 = 0
  *         if ss_order == 0:
- *             p0 = 0.5*( X[0]**2/C0 - log(C0) - LOG_2PI )             # <<<<<<<<<<<<<<
+ *             p0 = -0.5*( X[0]**2/C0 + log(C0) + LOG_2PI )             # <<<<<<<<<<<<<<
  *         if len(X) == 1:
  *             return p0
  */
@@ -20670,20 +20670,20 @@ static PyObject *__pyx_pf_8bayesmsd_3bin_2gp_logL(CYTHON_UNUSED PyObject *__pyx_
         PyErr_SetString(PyExc_ZeroDivisionError, "float division");
         __PYX_ERR(0, 215, __pyx_L1_error)
       }
-      __pyx_v_p0 = (0.5 * (((__pyx_t_11 / __pyx_v_C0) - log(__pyx_v_C0)) - __pyx_v_8bayesmsd_3bin_2gp_LOG_2PI));
+      __pyx_v_p0 = (-0.5 * (((__pyx_t_11 / __pyx_v_C0) + log(__pyx_v_C0)) + __pyx_v_8bayesmsd_3bin_2gp_LOG_2PI));
 
       /* "bayesmsd/src/gp.pyx":214
  *         # likelihood of the first data point
  *         p0 = 0
  *         if ss_order == 0:             # <<<<<<<<<<<<<<
- *             p0 = 0.5*( X[0]**2/C0 - log(C0) - LOG_2PI )
+ *             p0 = -0.5*( X[0]**2/C0 + log(C0) + LOG_2PI )
  *         if len(X) == 1:
  */
     }
 
     /* "bayesmsd/src/gp.pyx":216
  *         if ss_order == 0:
- *             p0 = 0.5*( X[0]**2/C0 - log(C0) - LOG_2PI )
+ *             p0 = -0.5*( X[0]**2/C0 + log(C0) + LOG_2PI )
  *         if len(X) == 1:             # <<<<<<<<<<<<<<
  *             return p0
  * 
@@ -20693,7 +20693,7 @@ static PyObject *__pyx_pf_8bayesmsd_3bin_2gp_logL(CYTHON_UNUSED PyObject *__pyx_
     if (__pyx_t_9) {
 
       /* "bayesmsd/src/gp.pyx":217
- *             p0 = 0.5*( X[0]**2/C0 - log(C0) - LOG_2PI )
+ *             p0 = -0.5*( X[0]**2/C0 + log(C0) + LOG_2PI )
  *         if len(X) == 1:
  *             return p0             # <<<<<<<<<<<<<<
  * 
@@ -20708,7 +20708,7 @@ static PyObject *__pyx_pf_8bayesmsd_3bin_2gp_logL(CYTHON_UNUSED PyObject *__pyx_
 
       /* "bayesmsd/src/gp.pyx":216
  *         if ss_order == 0:
- *             p0 = 0.5*( X[0]**2/C0 - log(C0) - LOG_2PI )
+ *             p0 = -0.5*( X[0]**2/C0 + log(C0) + LOG_2PI )
  *         if len(X) == 1:             # <<<<<<<<<<<<<<
  *             return p0
  * 

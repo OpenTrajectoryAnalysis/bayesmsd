@@ -212,7 +212,7 @@ def logL(trace, ss_order, msd, mean=0):
         # likelihood of the first data point
         p0 = 0
         if ss_order == 0:
-            p0 = 0.5*( X[0]**2/C0 - log(C0) - LOG_2PI )
+            p0 = -0.5*( X[0]**2/C0 + log(C0) + LOG_2PI )
         if len(X) == 1:
             return p0
 
