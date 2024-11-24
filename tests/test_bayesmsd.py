@@ -7,9 +7,11 @@ os.environ['OMP_NUM_THREADS'] = '1'
 
 import numpy as np
 np.seterr(all='raise') # pay attention to details
+from scipy import special
 
 import unittest
 from unittest.mock import patch
+
 
 import rouse
 import noctiluca as nl
@@ -341,8 +343,10 @@ class TestRouseLoci(myTestCase):
     def testEvidence(self):
         fit = bayesmsd.lib.TwoLocusRouseFit([self.data[0].dims([0])])
         fit.parameters[f"log(σ²) (dim 0)"].fix_to = -np.inf 
-        ev = fit.evidence()
+        ev, (xi, logL, logprior) = fit.evidence(return_evaluations=True)
         self.assertTrue(np.isfinite(ev))
+        with np.errstate(under='ignore'):
+            self.assertEqual(ev, special.logsumexp(logL+logprior))
 
         # If a fit has no free parameters (which might happen, e.g. with
         # marginalization), evidence() should just return the likelihood

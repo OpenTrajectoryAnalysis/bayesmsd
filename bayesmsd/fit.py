@@ -912,13 +912,14 @@ msdfun(dt,
 
     @parallel.chunky('likelihood_chunksize', -1)
     def evidence(self, show_progress=False,
-                 return_mci=False,
                  conf = 0.8,
                  conf_tol = 0.1,
                  n_cred = 10,
                  n_steps_per_cred = 2,
                  f_integrate = 0.99,
                  log10L_improper = 3,
+                 return_mci=False,
+                 return_evaluations=False,
                 ):
         """
         Estimate evidence for this model
@@ -932,10 +933,6 @@ msdfun(dt,
         ----------
         show_progress : bool
             display progress bar(s)
-        return_mci : bool
-            return the results of the initial profiler run. Note that these are
-            conditional posterior and with imprecise confidence settings (see
-            `!conf` and `!conf_tol` below).
         conf : float
             confidence level for the initial `Profiler` run. Will usually be
             some not-too-high value.
@@ -958,11 +955,29 @@ msdfun(dt,
         likelihood_chunksize : int
             see class description; here a chunksize of 1 corresponds to a
             single call to the fit likelihood.
+        return_mci : bool
+            return the results of the initial profiler run. Note that these are
+            conditional posterior and with imprecise confidence settings (see
+            `!conf` and `!conf_tol` below).
+        return_evaluations : bool
+            return the grid of evaluated likelihood points. If set, we return a
+            tuple ``(xi, logL, logprior)`` where ``xi`` are the parameter
+            vectors whose product forms the grid; ``logL`` are the evaluations
+            of the fit "likelihood" and ``logprior`` is the associated
+            parameter space. Note that the terms "likelihood" and "prior" are
+            to be regarded with caution here, since proper priors are included
+            in ``logL``, while improper priors are in ``logprior``. In any
+            case, ``logL + logprior`` gives the unnormalized (log-)posterior
+            whose integral is the evidence.
 
         Returns
         -------
         float
             estimated evidence for this model
+        dict, optional
+            the profiler result, if ``return_mci == True``
+        tuple
+            the evaluation grid, if ``return_evaluations == True``
 
         Notes
         -----
@@ -1206,7 +1221,13 @@ msdfun(dt,
         with np.errstate(under='ignore'):
             ev = special.logsumexp(logL + logprior)
 
+        out = [ev]
         if return_mci:
-            return ev, mci
+            out.append(mci)
+        if return_evaluations:
+            out.append((xi, logL, logprior))
+
+        if len(out) == 1:
+            return out[0]
         else:
-            return ev
+            return tuple(out)
