@@ -1051,8 +1051,8 @@ msdfun(dt,
             bounds = compactify(self.parameters[name].bounds, x0)
             while decompactify(bounds[0], x0) < self.parameters[name].bounds[0]:
                 bounds[0] *= 0.99
-            while decompactify(bounds[1], x0) < self.parameters[name].bounds[1]:
-                bounds[1] *= 0.99 # pragma: no cover
+            while decompactify(bounds[1], x0) > self.parameters[name].bounds[1]:
+                bounds[1] *= 0.99
             compactified_bounds[name] = bounds
 
             ci = compactify(mci[name][1], x0)
@@ -1082,15 +1082,20 @@ msdfun(dt,
                                 np.linspace(x_point, x_hi, n_steps+1)[1:],
                                ])
             
-            # might not be necessary; penalization takes care of out of bounds values
-            # not for impropers though...
-            # TBD
-            ind = np.nonzero(x < x_min)[0]
+            # make sure that we evaluate only in-bounds grid points
+            # Note: for parameters with proper parameters, this is actually
+            # unnecessary, since the likelihood will just return the penalty
+            # term. But for parameters with improper priors we need to ensure
+            # that we only use valid values; so let's just do it for all of
+            # them together.
+            delta = 0.1*(x[1]-x[0])
+            ind = np.nonzero(x-x_min < delta)[0] # too small
             if len(ind) > 0:
                 x[ind] = np.nan
                 x[ind[-1]] = x_min
                 
-            ind = np.nonzero(x > x_max)[0]
+            delta = 0.1*(x[-1]-x[-2])
+            ind = np.nonzero(x_max-x < delta)[0] # too large
             if len(ind) > 0:
                 x[ind] = np.nan
                 x[ind[0]] = x_max
@@ -1116,7 +1121,7 @@ msdfun(dt,
             # Make sure to correctly account for nan's (i.e. parameter bounds)
             dx_m[np.isnan(x) | np.isnan(dx_m)] = 0.
             dx_p[np.isnan(x) | np.isnan(dx_p)] = 0.
-            
+
             with np.errstate(divide='ignore'): # log(0) for dx=nan=0
                 logprior = logprior[..., None] + np.log(dx_p+dx_m)
 
