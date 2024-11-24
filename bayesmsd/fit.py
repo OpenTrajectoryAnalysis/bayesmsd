@@ -1064,9 +1064,9 @@ msdfun(dt,
             if name in impropers:
                 x_max = compactify(x_max, x_point)
             
-            x = np.concatenate([np.linspace(x_lo, x_point, n_steps)[:-1],
+            x = np.concatenate([np.linspace(x_lo, x_point, n_steps+1)[:-1],
                                 [x_point],
-                                np.linspace(x_point, x_hi, n_steps)[1:],
+                                np.linspace(x_point, x_hi, n_steps+1)[1:],
                                ])
             
             # might not be necessary; penalization takes care of out of bounds values
@@ -1085,15 +1085,24 @@ msdfun(dt,
             xi.append(x)
 
         # Calculate parameter space volume (i.e. prior) for each grid cell
+        # We evaluate grid cells at x[i]. The associated volume is the sum of
+        # half the distance to the previous grid point and half the distance to
+        # the next; the grid points at the limits get only half a cell.
+        #
+        #   v              |           v              |           v              |   ...   |           v  
+        #   X[0]===Δ+[0]===|===Δ-[1]===X[1]===Δ+[1]===|===Δ-[2]===X[2]===Δ+[2]===|===...===|===Δ-[N]===X[N]
+        #   ^              |           ^              |           ^              |   ...   |           ^
+        #   |             Δ[0]         |             Δ[1]         |             Δ[2] ...  Δ[N-1]       |
+        #
         logprior = np.array(0)
         for i, (name, x) in enumerate(zip(names, xi)):
             dx = np.diff(x)
-            
+            dx_m = np.insert(0.5*dx, 0, 0)
+            dx_p = np.append(0.5*dx, 0)
+
             # Make sure to correctly account for nan's (i.e. parameter bounds)
-            dx_p = 0.5*dx[1:]
-            dx_p[np.isnan(dx_p)] = 0.
-            dx_m = 0.5*dx[:-1]
-            dx_m[np.isnan(dx_m)] = 0.
+            dx_m[np.isnan(x) | np.isnan(dx_m)] = 0.
+            dx_p[np.isnan(x) | np.isnan(dx_p)] = 0.
             
             with np.errstate(divide='ignore'): # log(0) for dx=nan=0
                 logprior = logprior[..., None] + np.log(dx_p+dx_m)
@@ -1101,12 +1110,9 @@ msdfun(dt,
             if name in impropers: # others should be accounted for in self.logprior() !
                 logprior -= np.log(2)
             
-            # Only evaluate "central" grid points (for which we have a prior value)
-            xi[i] = x[1:-1]
-
         # Set up likelihood evaluations
         i_center = (logprior.shape[0]-1)//2
-        assert i_center == n_steps-2
+        assert i_center == n_steps
         assert np.all(np.array(logprior.shape) == 2*i_center+1)
 
         logL = np.empty(logprior.shape, dtype=float)
