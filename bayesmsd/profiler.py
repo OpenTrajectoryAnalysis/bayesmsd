@@ -517,7 +517,8 @@ class Profiler():
             pL = self.profile_likelihood(p)
 
             # Where next?
-            if pL <= pL_thres:
+            # if pL <= pL_thres: # what we want to do; but the next line is numerically more stable
+            if self.point_estimate['logL'] - pL >= self.LR_target:
                 self.vprint(3, f"bracketing: {pL:.3f} <= {pL_thres:.3f} @ {p}")
                 break
             elif past_bound:
