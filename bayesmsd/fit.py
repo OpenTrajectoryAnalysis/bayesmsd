@@ -1045,9 +1045,22 @@ msdfun(dt,
             return special.erfinv(y)*sigma_improper + x0
 
         impropers = [name for name in names if name in self.improper_priors]
+        compactified_bounds = {} # bounds for impropers, that are guaranteed to be safe under decompactify
         for name in impropers:
+            x0 = mci[name][0]
+            bounds = compactify(self.parameters[name].bounds, x0)
+            while decompactify(bounds[0], x0) < self.parameters[name].bounds[0]:
+                bounds[0] *= 0.99
+            while decompactify(bounds[1], x0) < self.parameters[name].bounds[1]:
+                bounds[1] *= 0.99 # pragma: no cover
+            compactified_bounds[name] = bounds
+
+            ci = compactify(mci[name][1], x0)
+            ci[0] = max(bounds[0], ci[0])
+            ci[1] = min(bounds[1], ci[1])
+
             mci[name+'_orig'] = mci[name]
-            mci[name] = (0., compactify(mci[name][1], mci[name][0]))
+            mci[name] = (0., ci)
 
         # Assemble parameter grid
         xi = []
@@ -1057,12 +1070,12 @@ msdfun(dt,
             x_lo = x_point + n_cred*(mci[name][1][0]-x_point)
             x_min = self.parameters[name].bounds[0]
             if name in impropers:
-                x_min = compactify(x_min, x_point)
+                x_min = compactified_bounds[name][0]
             
             x_hi = x_point + n_cred*(mci[name][1][1]-x_point)
             x_max = self.parameters[name].bounds[1]
             if name in impropers:
-                x_max = compactify(x_max, x_point)
+                x_max = compactified_bounds[name][1]
             
             x = np.concatenate([np.linspace(x_lo, x_point, n_steps+1)[:-1],
                                 [x_point],
