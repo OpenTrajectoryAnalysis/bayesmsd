@@ -92,6 +92,12 @@ class Fit(metaclass=ABCMeta):
         ``1`` means that for each dimension of each trajectory we submit a
         separate task; this usually leads to (way) too much overhead, so higher
         chunk sizes are recommended.
+    maxfev : float
+        maximum number of function evaluations per fitting run. Defaults to
+        "practically infinite", 1e10. How this works is that any `!MinTarget`
+        of this fit will admit only `!maxfev` calls; this means that whenever a
+        new `!MinTarget` is initialized (i.e. for a new fit run; using
+        `!logL()`; etc.), this counter is "reset".
 
     Notes
     -----
@@ -171,6 +177,7 @@ class Fit(metaclass=ABCMeta):
         
         self.verbosity = 1
         self.likelihood_chunksize = -1
+        self.maxfev = 1e10
 
         # List of those parameter names that have improper priors
         # Remember to define ``self.logprior`` for those that have proper priors!
@@ -180,7 +187,7 @@ class Fit(metaclass=ABCMeta):
         """
         Prints only if ``self.verbosity >= v``.
         """
-        if self.verbosity >= v:
+        if self.verbosity >= v: # pragma: no cover
             print("[bayesmsd.Fit]", (v-1)*'--', *args, **kwargs)
         
     ### To be overwritten / used upon subclassing ###
@@ -582,6 +589,7 @@ msdfun(dt,
                      ):
             self.fit = fit
             self.likelihood_chunksize = self.fit.likelihood_chunksize
+            self.evaluations_remaining = self.fit.maxfev
 
             # See class docstring
             fv = self.fit.expand_fix_values(fix_values)
@@ -727,32 +735,38 @@ msdfun(dt,
             -------
             float
             """
-            if self.margev_fit is None:
-                return self.eval_atomic(params_array)
-            else:
-                params = self.params_array2dict(params_array)
-                params_prior = {name : params[name] for name in self.paramnames_prior}
+            if self.evaluations_remaining <= 0:
+                raise RuntimeError(f"Exceeded Fit.maxfev = {self.fit.maxfev} function evaluations")
 
-                for name, val in zip(self.params_free, params_array):
-                    self.margev_fit.parameters[name].fix_to = val
+            try:
+                if self.margev_fit is None:
+                    return self.eval_atomic(params_array)
+                else:
+                    params = self.params_array2dict(params_array)
+                    params_prior = {name : params[name] for name in self.paramnames_prior}
 
-                ev_chunksize = self.likelihood_chunksize
-                if len(self.params_marginalized) <= 1:
-                    # switch off parallelization in evidence, since it would be
-                    # at most 2 parallel evaluations anyways; this will allow
-                    # margev_fit to parallelize its likelihood
-                    ev_chunksize = -1
-                ev, mci = self.margev_fit.evidence(likelihood_chunksize=ev_chunksize,
-                                                   return_mci=True,
-                                                   )
+                    for name, val in zip(self.params_free, params_array):
+                        self.margev_fit.parameters[name].fix_to = val
 
-                if ev > self.marg_ev_mci[0]: # remember best evaluation
-                    self.marg_ev_mci = (ev, mci)
+                    ev_chunksize = self.likelihood_chunksize
+                    if len(self.params_marginalized) <= 1:
+                        # switch off parallelization in evidence, since it would be
+                        # at most 2 parallel evaluations anyways; this will allow
+                        # margev_fit to parallelize its likelihood
+                        ev_chunksize = -1
+                    ev, mci = self.margev_fit.evidence(likelihood_chunksize=ev_chunksize,
+                                                       return_mci=True,
+                                                       )
 
-                return (- ev
-                        - self.fit.logprior(params_prior)
-                        - self.offset
-                        )
+                    if ev > self.marg_ev_mci[0]: # remember best evaluation
+                        self.marg_ev_mci = (ev, mci)
+
+                    return (- ev
+                            - self.fit.logprior(params_prior)
+                            - self.offset
+                            )
+            finally:
+                self.evaluations_remaining -= 1
 
         def profile_marginalized_params(self, params):
             """
@@ -807,7 +821,7 @@ msdfun(dt,
             ``scipy.optimize.minimize`` as keyword arguments.
         maxfev : int or None
             limit on function evaluations for ``'simplex'`` or ``'gradient'``
-            optimization steps
+            optimization steps (overrides `!self.maxfev`)
         fix_values : dict
             can be used to keep some parameter values fixed or express them as
             function of the other parameters. See class doc for more details.
@@ -863,6 +877,8 @@ msdfun(dt,
                                     offset=initial_offset,
                                     adjust_prior_for_fixed_values=adjust_prior_for_fixed_values,
                                     )
+        if maxfev is not None:
+            min_target.evaluations_remaining = maxfev
 
         p0 = min_target.params_dict2array(initial_params)
         bounds = [self.parameters[name].bounds for name in min_target.params_free]
@@ -886,19 +902,17 @@ msdfun(dt,
                     # relative to the last evaluation, not a strict bound. So
                     # the Profiler might actually still find a better estimate,
                     # even though it uses the same tolerance (1e-3).
-                    options = {'fatol' : 1e-3, 'xatol' : np.inf}
-
-                    if maxfev is not None:
-                        options['maxfev'] = maxfev
+                    options = {'fatol' : 1e-3,
+                               'xatol' : np.inf,
+                               'maxfev' : 1e10, # taken care of by MinTarget
+                               }
                     kwargs = dict(method = 'Nelder-Mead',
                                   options = options,
                                   bounds = bounds,
                                   callback = callback,
                                  )
                 elif step == 'gradient':
-                    options = {}
-                    if maxfev is not None:
-                        options['maxfun'] = maxfev
+                    options = {'maxfun' : 1e10}
                     kwargs = dict(method = 'L-BFGS-B',
                                   options = options,
                                   bounds = bounds,
@@ -923,7 +937,7 @@ msdfun(dt,
                     fitres = lambda: None # hack: lambdas allow free assignment of attributes
                     fitres.success = False
                 
-                if not fitres.success:
+                if not fitres.success: # pragma: no cover # got rare since we moved maxfev to Fit
                     self.vprint(1, f"Fit (step {istep}: {step}) failed. Here's the result:")
                     self.vprint(1, '\n', fitres)
                     raise RuntimeError("Fit failed at step {:d}: {:s}".format(istep, step))

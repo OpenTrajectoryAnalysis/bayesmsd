@@ -86,6 +86,7 @@ class FitGroup(Fit):
 
         self.verbosity = 1
         self.likelihood_chunksize = -1
+        self.maxfev = 1e10
 
         self.improper_priors = [self.make_joint_param_name(fitname, paramname)
                                 for fitname, fit in self.fits_dict.items()
