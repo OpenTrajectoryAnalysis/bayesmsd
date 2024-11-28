@@ -304,6 +304,30 @@ class Fit(metaclass=ABCMeta):
     
     ### General machinery, usually won't need overwriting ###
 
+    def logL(self, params):
+        """
+        Evaluate log-likelihood (convenience function)
+
+        This function evaluates the log-likelihood for the given parameter
+        values. Note that this is purely a convenience function; it is
+        equivalent to
+
+        >>> mt = fit.MinTarget(fit)
+        ... logL = -mt(mt.params_dict2array(params))
+
+        Parameters
+        ----------
+        params : dict
+            the parameter values. Has to contain values for independent
+            parameters, can contain other values (which would be ignored)
+
+        Returns
+        -------
+        float
+        """
+        mt = self.MinTarget(self)
+        return -mt(mt.params_dict2array(params))
+
     def MSD(self, params, dt=None):
         """
         Return the (trend-free) MSD evaluated at dt. Convenience function.

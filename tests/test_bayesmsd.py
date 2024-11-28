@@ -235,9 +235,8 @@ class TestDiffusive(myTestCase):
         # test the mechanism for edge cases that _penalty() doesn't catch
         fit.verbosity = 0 # suppress error message
         fit._penalty = lambda x: 0
-        mt = fit.MinTarget(fit)
-        logL = mt(mt.params_dict2array(params))
-        self.assertEqual(logL, fit.max_penalty)
+        logL = fit.logL(params)
+        self.assertEqual(logL, -fit.max_penalty)
 
     def test_expand_fix_values(self):
         fit = bayesmsd.lib.NPXFit(self.data, ss_order=1, n=1)
