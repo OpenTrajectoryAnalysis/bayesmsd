@@ -1324,3 +1324,168 @@ class NPFit(Fit):
         params.update({f"m1 (dim {dim})" : m1 for dim, m1 in enumerate(m1s)})
 
         return params
+
+class TwoLocusHeuristicFit(Fit):
+    r"""
+    Heuristic model for two loci on a polymer with exponent α
+
+    This is an attempt to generalize TwoLocusRouseFit to scenarios where the
+    short time subdiffusion has an exponent different from 0.5. The MSD is
+    given by
+
+    .. math:: \text{MSD}(\Delta t) = \left[ \left(2\Gamma\Delta t^\alpha\right)^{-n} + \left(2J\right)^{-n} \right]^{-\frac{1}{n}}
+
+    which is a softmin interpolation between the two asymptotes, with
+    "sharpness" of the crossover given by the (hyper-)parameter n. A decent
+    approximation to the two-locus Rouse MSD is given by :math:`\alpha = 0.5`
+    and :math:`n = 2`, so by default it is fixed there. Note that ``n =
+    np.inf`` is a valid setting and produces a sharp kink.
+
+    Note that a convenient parametrization of this fit (and thus the default)
+    is in terms of :math:`\tau` and :math:`J` (where :math:`\tau :=
+    (J/\Gamma)^{1/\alpha}` is the intersection of the asymptotes), instead of
+    :math:`\Gamma` and :math:`J`.
+
+    Parameters
+    ----------
+    data : noctiluca.TaggedSet, pandas.DataFrame, list of numpy.ndarray
+        the data to fit. See `Fit`.
+    motion_blur_f : float in [0, 1], optional
+        fractional exposure time (i.e. exposure time as fraction of the time
+        between frames). The resulting motion blur will be taken into account
+        in the fit.
+    parametrization : {'(log(Γ), log(J))', '(log(τ), log(J))', '(log(Γ), log(τ))'}
+        how to parametrize the MSD. By default, we parametrize in terms of τ
+        and J, since those have non-fractional units. Sometimes using Γ and J
+        can make sense; the parametrization in terms of Γ and τ is added mostly
+        for completeness.
+    """
+    def __init__(self, data,
+                 motion_blur_f=0,
+                 parametrization='(log(τ), log(J))',
+                ):
+        super().__init__(data)
+        self.motion_blur_f = motion_blur_f
+
+        self.ss_order = 0
+
+        # This gives reasonable agreement with Rouse (if α = 0.5)
+        n = 2
+
+        for name in ['log(σ²)', 'α', 'log(Γ)', 'log(τ)', 'log(J)', 'n']:
+            for dim in range(self.d):
+                dim_name = f"{name} (dim {dim})"
+                if name in {'log(Γ)', 'log(τ)', 'log(J)'}:
+                    self.parameters[dim_name] = Parameter((-_MAX_LOG, _MAX_LOG),
+                                                          linearization=Linearize.Exponential())
+                elif name == 'log(σ²)':
+                    self.parameters[dim_name] = Parameter((-np.inf, _MAX_LOG),
+                                                          linearization=Linearize.Exponential())
+                    self.parameters[dim_name].fix_to = -np.inf # no loc err by default
+                elif name == 'α':
+                    self.parameters[dim_name] = Parameter((0.01, 1.99),
+                                                          linearization=Linearize.Bounded())
+                elif name == 'n':
+                    self.parameters[dim_name] = Parameter((0.01, np.inf),
+                                                          linearization=Linearize.Multiplicative())
+                    self.parameters[dim_name].fix_to = n
+                else: # huh? # pragma: no cover
+                    raise RuntimeError
+
+                if dim > 0 and name not in {'log(σ²)'}:
+                    self.parameters[dim_name].fix_to = f"{name} (dim 0)"
+
+        if parametrization == '(log(τ), log(J))':
+            for dim in range(self.d):
+                self.parameters[f'log(Γ) (dim {dim})'].fix_to = self.fix_G
+        elif parametrization == '(log(Γ), log(J))':
+            for dim in range(self.d):
+                self.parameters[f'log(τ) (dim {dim})'].fix_to = self.fix_tau
+        elif parametrization == '(log(Γ), log(τ))':
+            for dim in range(self.d):
+                self.parameters[f'log(J) (dim {dim})'].fix_to = self.fix_J
+
+        self.improper_priors = [name for name in self.parameters
+                                if name.startswith('log(')
+                                ]
+
+        self.n_prior_kwargs = dict(s=1, scale=3)
+
+        self.constraints = []
+
+    @staticmethod
+    def fix_G(params, name):
+        # name = 'log(Γ) (dim d)'
+        d = int(name[12:-1])
+        return params[f'log(J) (dim {d})'] - params[f'log(τ) (dim {d})']*params[f'α (dim {d})']
+
+    @staticmethod
+    def fix_tau(params, name):
+        # name = 'log(τ) (dim d)'
+        d = int(name[12:-1])
+        return (params[f'log(J) (dim {d})'] - params[f'log(Γ) (dim {d})'])/params[f'α (dim {d})']
+
+    @staticmethod
+    def fix_J(params, name):
+        # name = 'log(J) (dim d)'
+        d = int(name[12:-1])
+        return params[f'log(Γ) (dim {d})'] + params[f'log(τ) (dim {d})']*params[f'α (dim {d})']
+
+    def logprior(self, params):
+        names_a = [name for name in params if name.startswith('α ')]
+        names_n = [name for name in params if name.startswith('n ')]
+        return (  np.sum([-np.log(np.diff(self.parameters[name].bounds)[0]) for name in names_a])
+                + np.sum([stats.lognorm.logpdf(params[name], **self.n_prior_kwargs)  for name in names_n]) )
+
+    def params2msdm(self, params):
+        msdm = []
+        for dim in range(self.d):
+            with np.errstate(under='ignore'): # if noise == 0
+                noise2 = np.exp(params[f"log(σ²) (dim {dim})"])
+                a      =        params[      f"α (dim {dim})"]
+                tau    = np.exp(params[ f"log(τ) (dim {dim})"])
+                J      = np.exp(params[ f"log(J) (dim {dim})"])
+                n      =        params[      f"n (dim {dim})"]
+
+            if n == np.inf:
+                @deco.MSDfun
+                @deco.imaging(noise2=noise2, f=self.motion_blur_f, alpha0=a)
+                def msd(dt, a=a, tau=tau, J=J):
+                    return 2*J*np.minimum(1, (dt/tau)**a)
+            else:
+                @deco.MSDfun
+                @deco.imaging(noise2=noise2, f=self.motion_blur_f, alpha0=a)
+                def msd(dt, a=a, tau=tau, J=J, n=n):
+                    return 2*J*( 1 + (dt/tau)**(-n*a) )**(-1/n)
+
+            msdm.append((msd, params[f'm1 (dim {dim})']))
+        return msdm
+
+    def initial_params(self):
+        e_msd = MSD(self.data) / self.d
+        dt_valid = np.nonzero(np.isfinite(e_msd) & (e_msd > 0))[0]
+        dt_valid_early = dt_valid[:min(5, len(dt_valid))]
+
+        J = np.nanmean(np.concatenate([traj[:]**2 for traj in self.data], axis=0))
+        (a, logG), _ = optimize.curve_fit(lambda x, a, logG : a*x + logG,
+                                          np.log(dt_valid_early),
+                                          np.log(e_msd[dt_valid_early]),
+                                          p0=(1, 0),
+                                          bounds=([0.05, -np.inf], [1.95, np.inf]),
+                                          )
+        G = np.exp(logG)
+        noise2 = e_msd[dt_valid[0]]/2
+
+        params = {}
+        for dim in range(self.d):
+            params[f"log(σ²) (dim {dim})"] = np.log(noise2)
+            params[      f"α (dim {dim})"] = a
+            params[ f"log(Γ) (dim {dim})"] = np.log(G)
+            params[ f"log(τ) (dim {dim})"] = (np.log(J)-np.log(G))/a
+            params[ f"log(J) (dim {dim})"] = np.log(J)
+            params[      f"n (dim {dim})"] = 2
+
+        m1s = np.nanmean(np.concatenate([traj[:] for traj in self.data]), axis=0)
+        params.update({f"m1 (dim {dim})" : m1 for dim, m1 in enumerate(m1s)})
+
+        return params

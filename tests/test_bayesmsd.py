@@ -331,6 +331,29 @@ class TestRouseLoci(myTestCase):
         res2 = fit.run()
         self.assertAlmostEqual(res['logL'], res2['logL'], delta=0.01)
 
+    def testHeuristic(self):
+        fit = bayesmsd.lib.TwoLocusHeuristicFit(self.data)
+        for dim in range(fit.d):
+            fit.parameters[f"log(σ²) (dim {dim})"].fix_to = -np.inf
+        res = fit.run()
+
+        params = res['params']
+        params['n (dim 0)'] = np.inf
+        msd = fit.MSD(params, dt=np.arange(10))
+        self.assertTrue(np.all(np.isfinite(msd)))
+
+        fit = bayesmsd.lib.TwoLocusHeuristicFit(self.data, parametrization='(log(Γ), log(J))')
+        for dim in range(fit.d):
+            fit.parameters[f"log(σ²) (dim {dim})"].fix_to = -np.inf
+        res2 = fit.run()
+        self.assertAlmostEqual(res['logL'], res2['logL'], delta=0.01)
+
+        fit = bayesmsd.lib.TwoLocusHeuristicFit(self.data, parametrization='(log(Γ), log(τ))')
+        for dim in range(fit.d):
+            fit.parameters[f"log(σ²) (dim {dim})"].fix_to = -np.inf
+        res3 = fit.run()
+        self.assertAlmostEqual(res['logL'], res2['logL'], delta=0.01)
+
     def testSS05trimming(self):
         fit = bayesmsd.lib.TwoLocusRouseFit(self.data)
         fit.ss_order = 0.5
