@@ -1381,7 +1381,6 @@ class TwoLocusHeuristicFit(Fit):
                 elif name == 'log(σ²)':
                     self.parameters[dim_name] = Parameter((-np.inf, _MAX_LOG),
                                                           linearization=Linearize.Exponential())
-                    self.parameters[dim_name].fix_to = -np.inf # no loc err by default
                 elif name == 'α':
                     self.parameters[dim_name] = Parameter((0.01, 1.99),
                                                           linearization=Linearize.Bounded())
