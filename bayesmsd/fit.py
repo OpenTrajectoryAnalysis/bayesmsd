@@ -335,6 +335,26 @@ class Fit(metaclass=ABCMeta):
         mt = self.MinTarget(self)
         return -mt(mt.params_dict2array(params))
 
+    def fill_dependent_params(self, params, fix_values=None):
+        """
+        Fill in dependent parameters (convenience function)
+
+        Parameters
+        ----------
+        params_independent : dict
+            a dictionary containing values for all independent parameters
+        fix_values : dict
+            additional fixed values (same as for e.g. `!run()`).
+
+        Returns
+        -------
+        dict
+            with keys for all parameters of the fit, filled in according to
+            fixed values
+        """
+        mt = self.MinTarget(self, fix_values=fix_values)
+        return mt.params_array2dict(mt.params_dict2array(params))
+
     def MSD(self, params, dt=None):
         """
         Return the (trend-free) MSD evaluated at dt. Convenience function.

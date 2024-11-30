@@ -673,6 +673,17 @@ class TestProfiler(myTestCase):
         type(min_target).__call__ = MinTarget__call__
 
 class TestRandomStuff(myTestCase):
+    def test_full_params(self):
+        fit = bayesmsd.lib.NPFit([[0]])
+        fit.parameters['log(σ²) (dim 0)'].fix_to = 6.94
+
+        params = {
+                'α (dim 0)' : 0.5,
+                'log(Γ) (dim 0)' : 1.,
+                }
+        params = fit.fill_dependent_params(params)
+        self.assertEqual(params['log(σ²) (dim 0)'], 6.94)
+
     def test_MSD(self):
         data = nl.TaggedSet([nl.Trajectory([[1, 2, 3], [4, 5, 6]])], hasTags=False)
         fit = bayesmsd.lib.NPXFit(data, ss_order=1, n=0)
