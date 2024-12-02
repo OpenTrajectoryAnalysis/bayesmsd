@@ -1339,7 +1339,9 @@ class TwoLocusHeuristicFit(Fit):
     "sharpness" of the crossover given by the (hyper-)parameter n. A decent
     approximation to the two-locus Rouse MSD is given by :math:`\alpha = 0.5`
     and :math:`n = 2`, so by default it is fixed there. Note that ``n =
-    np.inf`` is a valid setting and produces a sharp kink.
+    np.inf`` is a valid setting and produces a sharp kink. Also note that this
+    MSD can become non-positive-definite for :math:`\alpha > 1`; we therefore
+    constrain :math:`\alpha <= 1`.
 
     Note that a convenient parametrization of this fit (and thus the default)
     is in terms of :math:`\tau` and :math:`J` (where :math:`\tau :=
@@ -1382,7 +1384,7 @@ class TwoLocusHeuristicFit(Fit):
                     self.parameters[dim_name] = Parameter((-np.inf, _MAX_LOG),
                                                           linearization=Linearize.Exponential())
                 elif name == 'α':
-                    self.parameters[dim_name] = Parameter((0.01, 1.99),
+                    self.parameters[dim_name] = Parameter((0.01, 1.),
                                                           linearization=Linearize.Bounded())
                 elif name == 'n':
                     self.parameters[dim_name] = Parameter((0.01, np.inf),
@@ -1470,7 +1472,7 @@ class TwoLocusHeuristicFit(Fit):
                                           np.log(dt_valid_early),
                                           np.log(e_msd[dt_valid_early]),
                                           p0=(1, 0),
-                                          bounds=([0.05, -np.inf], [1.95, np.inf]),
+                                          bounds=([0.05, -np.inf], [1., np.inf]),
                                           )
         G = np.exp(logG)
         noise2 = e_msd[dt_valid[0]]/2
