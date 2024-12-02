@@ -603,13 +603,22 @@ msdfun(dt,
             constant to be subtracted from the target (i.e. added to the
             likelihood). Can be used to ensure that the minimum value of the
             target is close to 0.
+        xatol : float
+            set this to a finite value to make MinTarget check its past
+            evaluations and report (suspected) convergence. For internal use.
+        N_xatol : int
+            how far to look back when assessing xatol-convergence. Default:
+            2x(number of independent fit parameters)
+        memo_evals : list
+            evaluation history. Can come in handy when the fit aborts for
+            whatever reason
         """
         def __init__(self, fit, *, fix_values=None, offset=0,
                      adjust_prior_for_fixed_values=True,
                      ):
             self.fit = fit
             self.likelihood_chunksize = self.fit.likelihood_chunksize
-            self.evaluations_remaining = self.fit.maxfev
+            self.maxfev = self.fit.maxfev
 
             # See class docstring
             fv = self.fit.expand_fix_values(fix_values)
@@ -620,6 +629,10 @@ msdfun(dt,
             self.params_to_callable  = fv[4]
 
             self.offset = offset
+
+            self.xatol = np.nan # workaround for convergence; check Fit.run()
+            self.N_xatol = max(10, 2*len(self.params_free))
+            self.memo_evals = []
             
             self.paramnames_prior = self.params_free
             if not adjust_prior_for_fixed_values:
@@ -637,6 +650,9 @@ msdfun(dt,
             else:
                 self.margev_fit = None # no marginalization to do
                 self.marg_ev_mci = (-np.inf, {})
+
+        class xatolConverged(Exception):
+            pass
 
         def params_array2dict(self, params_array):
             """
@@ -755,38 +771,45 @@ msdfun(dt,
             -------
             float
             """
-            if self.evaluations_remaining <= 0:
-                raise RuntimeError(f"Exceeded Fit.maxfev = {self.fit.maxfev} function evaluations")
+            if len(self.memo_evals) >= self.maxfev:
+                raise RuntimeError(f"Exceeded maxfev = {self.maxfev} function evaluations")
 
-            try:
-                if self.margev_fit is None:
-                    return self.eval_atomic(params_array)
-                else:
-                    params = self.params_array2dict(params_array)
-                    params_prior = {name : params[name] for name in self.paramnames_prior}
+            if self.margev_fit is None:
+                out = self.eval_atomic(params_array)
+            else:
+                params = self.params_array2dict(params_array)
+                params_prior = {name : params[name] for name in self.paramnames_prior}
 
-                    for name, val in zip(self.params_free, params_array):
-                        self.margev_fit.parameters[name].fix_to = val
+                for name, val in zip(self.params_free, params_array):
+                    self.margev_fit.parameters[name].fix_to = val
 
-                    ev_chunksize = self.likelihood_chunksize
-                    if len(self.params_marginalized) <= 1:
-                        # switch off parallelization in evidence, since it would be
-                        # at most 2 parallel evaluations anyways; this will allow
-                        # margev_fit to parallelize its likelihood
-                        ev_chunksize = -1
-                    ev, mci = self.margev_fit.evidence(likelihood_chunksize=ev_chunksize,
-                                                       return_mci=True,
-                                                       )
+                ev_chunksize = self.likelihood_chunksize
+                if len(self.params_marginalized) <= 1:
+                    # switch off parallelization in evidence, since it would be
+                    # at most 2 parallel evaluations anyways; this will allow
+                    # margev_fit to parallelize its likelihood
+                    ev_chunksize = -1
+                ev, mci = self.margev_fit.evidence(likelihood_chunksize=ev_chunksize,
+                                                   return_mci=True,
+                                                   )
 
-                    if ev > self.marg_ev_mci[0]: # remember best evaluation
-                        self.marg_ev_mci = (ev, mci)
+                if ev > self.marg_ev_mci[0]: # remember best evaluation
+                    self.marg_ev_mci = (ev, mci)
 
-                    return (- ev
-                            - self.fit.logprior(params_prior)
-                            - self.offset
-                            )
-            finally:
-                self.evaluations_remaining -= 1
+                out = (- ev
+                       - self.fit.logprior(params_prior)
+                       - self.offset
+                       )
+
+            self.memo_evals.append((out, params_array))
+            if np.isfinite(self.xatol) and len(self.memo_evals) >= self.N_xatol:
+                history = np.array([p for _, p in self.memo_evals[-self.N_xatol:]])
+                xmean = np.mean(history, axis=0)
+                delta = np.abs(history - xmean[None])
+                if np.max(delta) < self.xatol:
+                    raise self.xatolConverged(f"Fit parameters converged to better than xatol = {self.xatol}. Check MinTarget.memo_evals for evaluations")
+
+            return out
 
         def profile_marginalized_params(self, params):
             """
@@ -819,6 +842,7 @@ msdfun(dt,
             init_from = None,
             optimization_steps=('simplex',),
             maxfev=None,
+            xatol=1e-5,
             fix_values = None,
             adjust_prior_for_fixed_values=True,
             give_rough_marginal_mci=False,
@@ -842,6 +866,9 @@ msdfun(dt,
         maxfev : int or None
             limit on function evaluations for ``'simplex'`` or ``'gradient'``
             optimization steps (overrides `!self.maxfev`)
+        xatol : float
+            convergence criterion in parameter space; should be relevant only
+            in special cases. Can be set to ``np.nan`` to disable.
         fix_values : dict
             can be used to keep some parameter values fixed or express them as
             function of the other parameters. See class doc for more details.
@@ -898,7 +925,7 @@ msdfun(dt,
                                     adjust_prior_for_fixed_values=adjust_prior_for_fixed_values,
                                     )
         if maxfev is not None:
-            min_target.evaluations_remaining = maxfev
+            min_target.maxfev = maxfev
 
         p0 = min_target.params_dict2array(initial_params)
         bounds = [self.parameters[name].bounds for name in min_target.params_free]
@@ -915,9 +942,25 @@ msdfun(dt,
                 if step == 'simplex':
                     # The stopping criterion for Nelder-Mead is max |f_point -
                     # f_simplex| < fatol AND max |x_point - x_simplex| < xatol.
-                    # We don't care about the precision in the parameters (that
-                    # should be determined by running the Profiler), so we
-                    # switch off the xatol mechanism and use only fatol.
+                    # 
+                    # In principle we should switch off the xatol mechanism and
+                    # just "listen" to fatol, i.e. variations in the
+                    # log-likelihood. However, in some instances (e.g. with
+                    # marginalized parameters, where "log-likelihood" in fact
+                    # is numerically integrated evidence), the likelihood
+                    # landscape might be somewhat noisy (in the cases that I
+                    # studied, this was quite minor, with likelihoods
+                    # fluctuating on the scale of 0.01). In those cases, the
+                    # fit will usually converge to a decent parameter set, but
+                    # is unable to pin down the likelihood to the required
+                    # precision; it would thus run forever. For these cases, it
+                    # makes sense to set xatol, but with the convergence
+                    # criterion being fatol OR xatol. Thus the actual
+                    # implementation goes through MinTarget. Also note that fit
+                    # parameters should numerically all be O(1) anyways, so
+                    # fixing an absolute value here is fine-ish; not the most
+                    # beautiful solution, but a practical one.
+                    # 
                     # Note that fatol is "just" a threshold on the decrease
                     # relative to the last evaluation, not a strict bound. So
                     # the Profiler might actually still find a better estimate,
@@ -944,6 +987,7 @@ msdfun(dt,
                                  )
                     kwargs.update(step)
                     
+                min_target.xatol = xatol
                 try:
                     if len(p0) > 0:
                         fitres = optimize.minimize(min_target, p0, **kwargs)
@@ -956,6 +1000,16 @@ msdfun(dt,
                     self.vprint(2, "BadCovarianceError:", err)
                     fitres = lambda: None # hack: lambdas allow free assignment of attributes
                     fitres.success = False
+                except min_target.xatolConverged:
+                    all_f = np.array([f for f, _ in min_target.memo_evals])
+                    i_best = np.argmin(all_f)
+                    fitres = lambda : None
+                    fitres.fun = min_target.memo_evals[i_best][0]
+                    fitres.x   = min_target.memo_evals[i_best][1]
+                    fitres.success = True
+
+                    df = np.mean(all_f[-min_target.N_xatol:]-fitres.fun)
+                    self.vprint(1, f"Fit parameters converged (xatol = {min_target.xatol}); mean likelihood deviation over last {min_target.N_xatol} evaluations was {df:.3g}.")
                 
                 if not fitres.success: # pragma: no cover # got rare since we moved maxfev to Fit
                     self.vprint(1, f"Fit (step {istep}: {step}) failed. Here's the result:")

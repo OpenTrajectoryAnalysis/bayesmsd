@@ -133,13 +133,17 @@ class TestDiffusive(myTestCase):
                                               "x2" : 0.5,
                                               "y0" : 0, "y1" : 0,
                                               "y2" : 0, "y3" : 0,
-                                              }})
+                                              }},
+                       xatol=np.nan,
+                       )
         # provoke "infinite" penalization
         res2 = fit.run(init_from={'params' : {"x1" : 1e-20,
                                               "x2" : 0.5,
                                               "y0" : 0, "y1" : 0,
                                               "y2" : 0, "y3" : 0,
-                                              }})
+                                              }},
+                       xatol=np.nan,
+                       )
 
         # check compactify / decompactify cycle
         dt = np.array([1, 5, 23, 100, 579, np.inf])
@@ -522,6 +526,7 @@ class TestFitGroup(myTestCase):
         res = self.fitgroup.run()
 
     def test_evidence(self):
+        self.fitgroup.verbosity = 0
         with nl.Parallelize(2):
             ev = self.fitgroup.evidence(likelihood_chunksize=100)
         self.assertTrue(np.isfinite(ev))
@@ -683,6 +688,18 @@ class TestRandomStuff(myTestCase):
                 }
         params = fit.fill_dependent_params(params)
         self.assertEqual(params['log(σ²) (dim 0)'], 6.94)
+
+    def test_xatol_convergence(self):
+        fit = bayesmsd.lib.NPFit([[0]]) # dummy
+        fit.parameters['log(σ²) (dim 0)'].fix_to = -np.inf
+        fit.parameters[      'α (dim 0)'].fix_to = 1.
+
+        G_eval = np.exp(-np.arange(100))
+        mt = fit.MinTarget(fit)
+        mt.xatol = 1e-5
+        mt.eval_atomic = lambda params: np.log(params[0]) # won't converge
+        with self.assertRaises(mt.xatolConverged):
+            _ = [mt(np.array([G])) for G in G_eval]
 
     def test_MSD(self):
         data = nl.TaggedSet([nl.Trajectory([[1, 2, 3], [4, 5, 6]])], hasTags=False)
