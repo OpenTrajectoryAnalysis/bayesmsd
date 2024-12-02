@@ -18,7 +18,7 @@ import sys
 from copy import deepcopy
 
 import numpy as np
-from scipy import optimize, interpolate, special
+from scipy import optimize, interpolate, special, stats
 
 import rouse
 from noctiluca.analysis import MSD
