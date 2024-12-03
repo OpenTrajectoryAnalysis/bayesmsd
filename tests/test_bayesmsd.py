@@ -396,7 +396,7 @@ class TestRouseLoci(myTestCase):
         fit = bayesmsd.lib.TwoLocusRouseFit([self.data[0]])
         for dim in range(fit.d):
             fit.parameters[f"log(σ²) (dim {dim})"].fix_to = -np.inf 
-        ev = fit.evidence()
+        ev = fit.evidence(init_from_params={'log(Γ) (dim 0)' : 0., 'log(J) (dim 0)' : 0.})
 
     @patch('builtins.print')
     def testNPX(self, mock_print):

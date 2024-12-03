@@ -1044,6 +1044,7 @@ msdfun(dt,
                  log10L_improper = 3,
                  return_mci=False,
                  return_evaluations=False,
+                 init_from_params=None,
                 ):
         """
         Estimate evidence for this model
@@ -1093,6 +1094,11 @@ msdfun(dt,
             in ``logL``, while improper priors are in ``logprior``. In any
             case, ``logL + logprior`` gives the unnormalized (log-)posterior
             whose integral is the evidence.
+        init_from_params : dict or None
+            start the initial fit from here. Can be useful when running on
+            single (or few) trajectories, where the fit might not converge
+            well; in those cases, run the profiler to find the initial point
+            estimate and specify it here.
 
         Returns
         -------
@@ -1174,6 +1180,12 @@ msdfun(dt,
         # Run profiler
         profiler = Profiler(self, profiling=False, conf=conf, conf_tol=conf_tol)
         profiler.verbosity = 0 # suppress everything, would just be confusing anyways
+        if init_from_params is not None:
+            pe = {}
+            pe['params'] = self.fill_dependent_params(init_from_params)
+            pe['logL']   = self.logL(pe['params'])
+            profiler.point_estimate = pe
+
         mci = profiler.find_MCI(show_progress=show_progress)
         assert set(mci.keys()) == set(names)
         
