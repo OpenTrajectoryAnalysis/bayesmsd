@@ -1239,14 +1239,18 @@ msdfun(dt,
             # term. But for parameters with improper priors we need to ensure
             # that we only use valid values; so let's just do it for all of
             # them together.
+            # Note: it is important to use <= (not just <), for cases where the
+            # point estimate sits on the boundary of the parameter range. In
+            # those cases the whole positive half of x will be equal (to 0), so
+            # delta == 0.
             delta = 0.1*(x[1]-x[0])
-            ind = np.nonzero(x-x_min < delta)[0] # too small
+            ind = np.nonzero(x-x_min <= delta)[0] # too small
             if len(ind) > 0:
                 x[ind] = np.nan
                 x[ind[-1]] = x_min
                 
             delta = 0.1*(x[-1]-x[-2])
-            ind = np.nonzero(x_max-x < delta)[0] # too large
+            ind = np.nonzero(x_max-x <= delta)[0] # too large
             if len(ind) > 0:
                 x[ind] = np.nan
                 x[ind[0]] = x_max
