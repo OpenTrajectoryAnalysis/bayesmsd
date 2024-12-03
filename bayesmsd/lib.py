@@ -1405,6 +1405,8 @@ class TwoLocusHeuristicFit(Fit):
         elif parametrization == '(log(Γ), log(τ))':
             for dim in range(self.d):
                 self.parameters[f'log(J) (dim {dim})'].fix_to = self.fix_J
+        else:
+            raise ValueError(f"Invalid parametrization: {parametrization}") # pragma: no cover
 
         self.improper_priors = [name for name in self.parameters
                                 if name.startswith('log(')
