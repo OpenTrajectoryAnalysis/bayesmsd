@@ -1311,7 +1311,7 @@ msdfun(dt,
 
             for ind in ilist[ind_nans]:
                 # Important for detecting that we did (attempt to) evaluate this point
-                logL[ind] = -self.max_penalty
+                logL[tuple(ind)] = -self.max_penalty
 
             xlist = xlist[~ind_nans]
             ilist = ilist[~ind_nans]
