@@ -30,6 +30,7 @@ setup :
 
 $(TESTVENV) : # to rebuild: make -B <TESTVENV>
 	$(PYTHON) -m venv --clear $(TESTVENV)
+	env PYTHONPATH= $(TESTPYTHON) -m ensurepip # ensurepip during venv ignores -I option
 	$(TESTPYTHON) -m pip install --upgrade pip
 	$(TESTPYTHON) -m pip install coverage
 	$(TESTPYTHON) -m pip install -e .

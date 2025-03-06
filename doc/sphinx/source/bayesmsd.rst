@@ -32,6 +32,14 @@ bayesmsd.fitgroup
    :undoc-members:
    :show-inheritance:
 
+bayesmsd.fitsum
+---------------
+
+.. automodule:: bayesmsd.fitsum
+   :members:
+   :undoc-members:
+   :show-inheritance:
+
 bayesmsd.gp
 -----------
 

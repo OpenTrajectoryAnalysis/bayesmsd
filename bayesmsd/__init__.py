@@ -81,5 +81,6 @@ from . import gp
 from . import parameters
 from .fit        import Fit
 from .fitgroup   import FitGroup
+from .fitsum     import FitSum
 from .profiler   import Profiler
 from . import lib

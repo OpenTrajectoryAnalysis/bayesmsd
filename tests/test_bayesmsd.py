@@ -29,6 +29,7 @@ __all__ = [
     'TestProfiler',
     'TestRandomStuff',
     'TestNewImplementation',
+    'TestFitSum',
 ]
 
 # We test mostly the library implementations, since the base class `Fit` is
@@ -809,6 +810,41 @@ class TestNewImplementation(myTestCase):
             pass # pragma: no cover
         
         self.assertIn('_kwargstring', non_imaging_fun.__dict__)
+
+class TestFitSum(myTestCase):
+    def setUp(self):
+        def traj():
+            dat = np.cumsum(np.random.normal(size=(10, 3)), axis=0)
+            dat += np.random.normal(size=(10, 3)) # add some noise
+            return nl.Trajectory(dat)
+
+        self.data = nl.TaggedSet((traj() for _ in range(10)), hasTags=False)
+
+    def testTwoNPFits(self):
+        fit1 = bayesmsd.lib.NPFit(self.data)
+        fit1.parameters['α (dim 0)'].fix_to = 0.5
+        fit2 = bayesmsd.lib.NPFit(self.data)
+        fit2.parameters['α (dim 0)'].fix_to = 1
+        for dim in range(3):
+            fit1.parameters[f'log(σ²) (dim {dim})'].fix_to = -np.inf
+            fit2.parameters[f'log(σ²) (dim {dim})'].fix_to = -np.inf
+
+        # Test a few error scenarios
+        dummy_m1 = bayesmsd.lib.NPFit(self.data)
+        dummy_m1.parameters['m1 (dim 0)'].fix_to = 5
+        with self.assertRaises(ValueError):
+            bayesmsd.FitSum({'1' : fit1, '2' : bayesmsd.lib.NPFit([[0]])}) # different data
+        with self.assertRaises(ValueError):
+            bayesmsd.FitSum({'1' : fit1, '2' : bayesmsd.lib.TwoLocusRouseFit(self.data)}) # different ss_order
+        with self.assertRaises(ValueError):
+            bayesmsd.FitSum({'1' : fit1, '2' : dummy_m1}) # m1 != 0
+
+        fitsum = bayesmsd.FitSum({'α=0.5' : fit1, 'α=1' : fit2})
+        for dim in range(1, 3):
+            fitsum.parameters[f'log(σ²) (dim {dim})'].fix_to = 'log(σ²) (dim 0)'
+
+        res = fitsum.run()
+        self.assertTrue(np.isfinite(res['logL']))
 
 if __name__ == '__main__': # pragma: no cover
     import cProfile
