@@ -14,6 +14,7 @@ import numpy as np
 from scipy import optimize, special, stats
 
 from noctiluca import make_TaggedSet, parallel
+from noctiluca.analysis import MSD
 
 from .gp import GP, msd2C_fun
 from .deco import method_verbosity_patch
@@ -836,6 +837,94 @@ msdfun(dt,
                                 profiling=len(self.params_marginalized) > 1,
                                 ) # ^ suppress warning for single param
             return profiler.find_MCI()
+
+    @method_verbosity_patch
+    def run_lsq(self,
+                fix_values=None,
+                warn_ignore_constraints=True,
+                ):
+        """
+        Run least squares fit.
+        
+        Parameters
+        ----------
+        fix_values : dict, optional
+            can be used to keep some parameter values fixed or express them as
+            function of the other parameters. See class doc for more details.
+        warn_ignore_constraints : bool, optional
+            whether to warn about ignoring inequality constraints
+
+        Returns
+        -------
+        dict
+            the best-fit parameters (filled up with dependent and fixed
+            parameters)
+
+        Notes
+        -----
+        This function ignores inequality constraints (``self.constraints``). If
+        those are important, you might have to implement the curve fit
+        yourself, using the implementation of this function as a starting
+        point.
+        """
+        # Can we do something about the inequality constraints?
+        if len(self.constraints) > 0 and warn_ignore_constraints:
+            self.vprint(1, "Warning: ignoring inequality constraints in curve "
+                           "fit. This warning can be disabled with "
+                           "`warn_ignore_constraints=False`")
+
+        e_msd, var, N = MSD(self.data, givevar=True, giveN=True)
+        dt_valid = np.nonzero(np.isfinite(e_msd) & (e_msd > 0))[0]
+        e_msd = e_msd[dt_valid]
+        err   = np.sqrt(var/N)[dt_valid]
+
+        # Use MinTarget to convert between params dicts and arrays
+        min_target = self.MinTarget(self, fix_values=fix_values)
+
+        def init_val(param):
+            val = 0.5*(param.bounds[1]-param.bounds[0])
+            if not np.isfinite(val):
+                # some bounds are infinite. Initialize:
+                # 0 if 0 in (b0, b1) (open interval)
+                # 2c for half-open intervals [c>0.5, np.inf) or (-np.inf, c<-0.5]
+                # +/-1 for [c<=0.5, np.inf), (-np.inf, c>=-0.5].
+                b0, b1 = param.bounds
+                if b0 < 0 and b1 > 0:
+                    val = 0
+                elif b0 > 0.5:
+                    val = 2*b0
+                elif b1 < -0.5:
+                    val = 2*b1
+                elif b0 == -np.inf:
+                    val = -1
+                elif b1 == np.inf:
+                    val = 1
+                else:
+                    # Shouldn't happen
+                    raise ValueError("Could not determine useful initial value")
+            return val
+
+        init_params = {key : init_val(param) for key, param in self.parameters.items()}
+        init_params_arr = min_target.params_dict2array(init_params)
+
+        def log_msdfun(log_dt, *params_arr):
+            params = min_target.params_array2dict(np.array(params_arr))
+            msdm = self.params2msdm(params)
+            return np.log(np.sum([msd(dt) for msd, m in msdm], axis=0))
+
+        bounds = [self.parameters[name].bounds for name in min_target.param_names] # N x 2
+        bounds = tuple(np.array(bounds).T)                                         # 2 x N, tuple
+
+        # Run curve fit
+        popt, _ = optimize.curve_fit(log_msdfun,
+                                     np.log(dt_valid),
+                                     np.log(e_msd),
+                                     p0=init_params_arr,
+                                     bounds=bounds,
+                                     )
+
+        params = min_target.params_array2dict(popt)
+        return params
 
     @method_verbosity_patch
     def run(self,
