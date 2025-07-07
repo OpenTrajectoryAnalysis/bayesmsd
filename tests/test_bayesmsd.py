@@ -121,6 +121,19 @@ class TestDiffusive(myTestCase):
 
         self.data = nl.TaggedSet((traj() for _ in range(10)), hasTags=False)
 
+    def testLSQfit(self):
+        fit = bayesmsd.lib.NPFit(self.data)
+
+        # Sample all the options for initializing dependent on bounds
+        for key in ['log(Γ) (dim 1)', 'log(Γ) (dim 2)', 'log(σ²) (dim 1)', 'log(σ²) (dim 2)']:
+            fit.parameters[key].fix_to = None
+        fit.parameters['log(Γ) (dim 1)'].bounds[:] = (0.01, np.inf)
+        fit.parameters['log(Γ) (dim 2)'].bounds[:] = (1, np.inf)
+        fit.parameters['log(σ²) (dim 1)'].bounds[:] = (-np.inf, -0.01)
+        fit.parameters['log(σ²) (dim 2)'].bounds[:] = (-np.inf, -1)
+
+        params = fit.run_lsq()
+
     def testSpline(self):
         fit = bayesmsd.lib.SplineFit(self.data, ss_order=1, n=4)
         res = fit.run(verbosity=0, maxfev=500)

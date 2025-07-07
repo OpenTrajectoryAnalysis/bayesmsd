@@ -597,7 +597,7 @@ msdfun(dt,
         fix_values_resolution_order : list of str
             list of parameter names. The fixes in `!fix_values` will be
             executed in this order.
-        param_names : list of str
+        params_free : list of str
             list of parameter names that remain independent; this determines
             the order of entries when converting parameter dicts to arrays.
         offset : float
@@ -868,7 +868,7 @@ msdfun(dt,
         point.
         """
         # Can we do something about the inequality constraints?
-        if len(self.constraints) > 0 and warn_ignore_constraints:
+        if len(self.constraints) > 0 and warn_ignore_constraints: # pragma: no cover
             self.vprint(1, "Warning: ignoring inequality constraints in curve "
                            "fit. This warning can be disabled with "
                            "`warn_ignore_constraints=False`")
@@ -882,11 +882,12 @@ msdfun(dt,
         min_target = self.MinTarget(self, fix_values=fix_values)
 
         def init_val(param):
+            # if bounds are both finite: take center point
             val = 0.5*(param.bounds[1]-param.bounds[0])
             if not np.isfinite(val):
                 # some bounds are infinite. Initialize:
                 # 0 if 0 in (b0, b1) (open interval)
-                # 2c for half-open intervals [c>0.5, np.inf) or (-np.inf, c<-0.5]
+                # 2c for "definite" half-open intervals [c>0.5, np.inf) or (-np.inf, c<-0.5]
                 # +/-1 for [c<=0.5, np.inf), (-np.inf, c>=-0.5].
                 b0, b1 = param.bounds
                 if b0 < 0 and b1 > 0:
@@ -899,7 +900,7 @@ msdfun(dt,
                     val = -1
                 elif b1 == np.inf:
                     val = 1
-                else:
+                else: # pragma: no cover
                     # Shouldn't happen
                     raise ValueError("Could not determine useful initial value")
             return val
@@ -910,9 +911,9 @@ msdfun(dt,
         def log_msdfun(log_dt, *params_arr):
             params = min_target.params_array2dict(np.array(params_arr))
             msdm = self.params2msdm(params)
-            return np.log(np.sum([msd(dt) for msd, m in msdm], axis=0))
+            return np.log(np.sum([msd(dt_valid) for msd, m in msdm], axis=0))
 
-        bounds = [self.parameters[name].bounds for name in min_target.param_names] # N x 2
+        bounds = [self.parameters[name].bounds for name in min_target.params_free] # N x 2
         bounds = tuple(np.array(bounds).T)                                         # 2 x N, tuple
 
         # Run curve fit
