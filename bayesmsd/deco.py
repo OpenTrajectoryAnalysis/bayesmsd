@@ -159,6 +159,8 @@ def imaging(noise2=0, f=0, alpha0=1):
             B = msdfun(np.array([f]), **kwargs)[0] / ( (a+1)*(a+2) )
 
             # dt is in (0, inf], so we have to be careful with inf (but not 0)
+            # Note: if the b[ind] = ... line throws an error, this is usually because phi = f/dt > 1
+            # somewhere, such that (1-phi)**(a+2) is (negative)**(fractional), which is not allowed
             phi = f/dt
             b = np.empty(len(phi), dtype=float)
             ind = phi > 0

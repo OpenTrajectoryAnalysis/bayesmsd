@@ -242,7 +242,6 @@ class Fit(metaclass=ABCMeta):
         # implementations need to actually take care of the prior
         raise NotImplementedError # pragma: no cover
     
-    @abstractmethod
     def initial_params(self):
         """
         Give initial values for the parameters
@@ -251,13 +250,19 @@ class Fit(metaclass=ABCMeta):
         the empirical MSD, using `!noctiluca.analysis.MSD`) or just return
         constants.
 
+        Defaults to a simple curve fit to the empirical MSD (which might not be
+        appropriate for all custom fits, especially those containing inequality
+        constraints!)
+
         Returns
         -------
         params : dict
             initial values for the parameters. Should have the same keys as
             ``self.parameters``.
         """
-        raise NotImplementedError # pragma: no cover
+        if len(self.independent_parameters()) == 0: # (e.g. marginalizing everything)
+            return dict()
+        return self.run_lsq()
 
     def initial_offset(self):
         """
@@ -873,17 +878,25 @@ msdfun(dt,
                            "fit. This warning can be disabled with "
                            "`warn_ignore_constraints=False`")
 
-        e_msd, var, N = MSD(self.data, givevar=True, giveN=True)
-        dt_valid = np.nonzero(np.isfinite(e_msd) & (e_msd > 0))[0]
-        e_msd = e_msd[dt_valid]
-        err   = np.sqrt(var/N)[dt_valid]
-
         # Use MinTarget to convert between params dicts and arrays
         min_target = self.MinTarget(self, fix_values=fix_values)
 
+        def log_msdfun(dt, *params_arr):
+            # use dt, not log(dt); it doesn't matter for optimize.curve_fit() but
+            # e.g. 10/np.exp(np.log(10)) = 1.0000000000000002 > 1 which makes
+            # (1-phi)**alpha error out. ( so: avoid exp(log(.)) )
+            params = min_target.params_array2dict(np.array(params_arr))
+            msdm = self.params2msdm(params)
+            return np.log(np.sum([msd(dt) for msd, m in msdm], axis=0))
+
+        # Guess initial parameters for the curve fit (these can be very rough)
         def init_val(param):
             # if bounds are both finite: take center point
-            val = 0.5*(param.bounds[1]-param.bounds[0])
+            try:
+                val = 0.5*(param.bounds[1]+param.bounds[0])
+            except FloatingPointError:
+                val = np.inf
+
             if not np.isfinite(val):
                 # some bounds are infinite. Initialize:
                 # 0 if 0 in (b0, b1) (open interval)
@@ -908,18 +921,51 @@ msdfun(dt,
         init_params = {key : init_val(param) for key, param in self.parameters.items()}
         init_params_arr = min_target.params_dict2array(init_params)
 
-        def log_msdfun(log_dt, *params_arr):
-            params = min_target.params_array2dict(np.array(params_arr))
-            msdm = self.params2msdm(params)
-            return np.log(np.sum([msd(dt_valid) for msd, m in msdm], axis=0))
+        # for key in self.parameters:
+        #     print(key, self.parameters[key].bounds, init_params[key])
 
+        # Get bounds for each of the parameters
         bounds = [self.parameters[name].bounds for name in min_target.params_free] # N x 2
         bounds = tuple(np.array(bounds).T)                                         # 2 x N, tuple
 
+        # Need to take into account different time lags Δt (potentially)
+        self.data.restoreSelection(self.data_selection)
+        unique_dts = np.unique([traj.meta.get('Δt', 1) for traj in self.data])
+        i_msd_var_N = {}
+        for dt in unique_dts:
+            self.data.restoreSelection(self.data_selection)
+            self.data.refineSelection(lambda traj, _: traj.meta.get('Δt', 1) == dt)
+            assert len(self.data) > 0
+
+            e_msd, var, N = MSD(self.data, givevar=True, giveN=True)
+            dt_valid = np.nonzero(np.isfinite(e_msd) & (e_msd > 0))[0]
+            e_msd = e_msd[dt_valid]
+            var   = var  [dt_valid]
+            N     = N    [dt_valid]
+
+            i_msd_var_N[dt] = (dt_valid, e_msd, var, N)
+
+        all_dt = np.unique(np.concatenate([dt*i_msd_var_N[dt][0] for dt in unique_dts]))
+        all_msd = np.zeros(len(all_dt), dtype=float)
+        all_var = np.zeros(len(all_dt), dtype=float)
+        all_N   = np.zeros(len(all_dt), dtype=float)
+        for dt, (i, e_msd, var, N) in i_msd_var_N.items():
+            my_dt = dt*i
+            ind = np.array([x in my_dt for x in all_dt]) # use np.isin() in numpy>=2
+            all_msd[ind] += N*e_msd
+            all_var[ind] += N*var
+            all_N[ind]   += N
+
+        all_msd /= all_N
+        all_var /= all_N
+        all_sem  = np.sqrt(all_var/all_N)
+        all_sem[all_N <= 1] = np.inf
+
         # Run curve fit
         popt, _ = optimize.curve_fit(log_msdfun,
-                                     np.log(dt_valid),
-                                     np.log(e_msd),
+                                     all_dt,
+                                     np.log(all_msd),
+                                     sigma=all_sem,
                                      p0=init_params_arr,
                                      bounds=bounds,
                                      )

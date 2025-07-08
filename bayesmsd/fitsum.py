@@ -131,31 +131,31 @@ class FitSum(Fit):
 
     ### Aggregate stuff from elementary fits ###
     
-    def initial_params(self):
-        """
-        Aggregate initial parameters from elementary fits
-
-        Returns
-        -------
-        dict
-            initial parameters from elementary fits, with properly prefixed
-            names
-        """
-        # This might not be the best thing we can do here, but hopefully fine-ish
-        group_params = {}
-        log_s2 = -np.inf
-        for fitname, fit in self.fits_dict.items():
-            fit_params = fit.initial_params()
-            for name, val in fit_params.items():
-                group_params[self.make_joint_param_name(fitname, name)] = val
-                if 'log(σ²)' in name:
-                    log_s2 = max(log_s2, val)
-
-        for dim in range(self.d):
-            group_params[f'm1 (dim {dim})'] = 0
-            group_params[f'log(σ²) (dim {dim})'] = log_s2
-
-        return group_params
+#     def initial_params(self):
+#         """
+#         Aggregate initial parameters from elementary fits
+# 
+#         Returns
+#         -------
+#         dict
+#             initial parameters from elementary fits, with properly prefixed
+#             names
+#         """
+#         # This might not be the best thing we can do here, but hopefully fine-ish
+#         group_params = {}
+#         log_s2 = -np.inf
+#         for fitname, fit in self.fits_dict.items():
+#             fit_params = fit.initial_params()
+#             for name, val in fit_params.items():
+#                 group_params[self.make_joint_param_name(fitname, name)] = val
+#                 if 'log(σ²)' in name:
+#                     log_s2 = max(log_s2, val)
+# 
+#         for dim in range(self.d):
+#             group_params[f'm1 (dim {dim})'] = 0
+#             group_params[f'log(σ²) (dim {dim})'] = log_s2
+# 
+#         return group_params
 
     def logprior(self, params):
         """
