@@ -92,6 +92,7 @@ class FitGroup(Fit):
                                 for fitname, fit in self.fits_dict.items()
                                 for paramname in fit.improper_priors
                                ]
+        self.properized_improper_priors_mean_std = {} # dict: {paramname : (mean, std)}
 
     ### FitGroup specific methods ###
 
@@ -136,7 +137,7 @@ class FitGroup(Fit):
 
         return group_params
 
-    def logprior(self, params):
+    def base_logprior(self, params):
         """
         Aggregate log-priors from individual fits
 

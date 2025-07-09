@@ -183,6 +183,7 @@ class Fit(metaclass=ABCMeta):
         # List of those parameter names that have improper priors
         # Remember to define ``self.logprior`` for those that have proper priors!
         self.improper_priors = []
+        self.properized_improper_priors_mean_std = {} # dict: {paramname : (mean, std)}
 
     def vprint(self, v, *args, **kwargs):
         """
@@ -220,13 +221,15 @@ class Fit(metaclass=ABCMeta):
         """
         raise NotImplementedError # pragma: no cover
 
-    def logprior(self, params):
+    @abstractmethod
+    def base_logprior(self, params):
         """
         Prior over the parameters
 
-        Use this function if you want to specify a prior over the parameters
-        that will be added to the log-likelihood.  Default is a flat prior,
-        i.e. ``return 0``.
+        This function should be implemented upon subclassing `!Fit` and
+        calculate all the proper priors; parameters with improper priors should
+        be defined such that their prior is uniform 1 over (-∞, +∞). E.g.
+        instead of using Γ > 0 with prior 1/Γ, use log(Γ) in IR with prior 1.
 
         Parameters
         ----------
@@ -241,6 +244,26 @@ class Fit(metaclass=ABCMeta):
         # Since we included the possibility to calculate evidences, model
         # implementations need to actually take care of the prior
         raise NotImplementedError # pragma: no cover
+
+    def logprior(self, params):
+        """
+        Calculate full prior, taking into account "properized" priors.
+
+        Parameters
+        ----------
+        params : dict
+
+        Returns
+        -------
+        float
+        """
+        logpi = self.base_logprior(params)
+        for name in self.properized_improper_priors_mean_std:
+            if name in params:
+                m, s = self.properized_improper_priors_mean_std[name]
+                logpi += stats.norm(loc=m, scale=s).logpdf(params[name])
+
+        return logpi
     
     def initial_params(self):
         """

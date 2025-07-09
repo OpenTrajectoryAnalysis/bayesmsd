@@ -157,7 +157,7 @@ class FitSum(Fit):
 # 
 #         return group_params
 
-    def logprior(self, params):
+    def base_logprior(self, params):
         """
         Aggregate log-priors from elementary fits
 

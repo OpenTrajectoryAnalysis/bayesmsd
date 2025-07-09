@@ -164,7 +164,7 @@ class SplineFit(Fit):
 
         self.prev_fit = previous_spline_fit_and_result # for (alternative) initialization
 
-    def logprior(self, params):
+    def base_logprior(self, params):
         nx = len([name for name in params if name.startswith('x')]) 
         return special.gammaln(nx+1) - nx*np.log(self.x_max)
 
@@ -562,7 +562,7 @@ class NPXFit(Fit): # NPX = Noise + Powerlaw + X (i.e. spline)
         d = int(name[12:-1])
         return params[f'log(αΓ) (dim {d})'] - np.log(params[f'α (dim {d})'])
 
-    def logprior(self, params):
+    def base_logprior(self, params):
         nx = len([name for name in params if name.startswith('x')]) 
         logpi = special.gammaln(nx+1) - nx*np.log(self.x_max)
 
@@ -999,7 +999,7 @@ class TwoLocusRouseFit(Fit):
         d = int(name[12:-1])
         return params[f'log(Γ) (dim {d})'] + 0.5*params[f'log(τ) (dim {d})']
 
-    def logprior(self, params):
+    def base_logprior(self, params):
         return 0 # all priors are improper
         
     def params2msdm(self, params):
@@ -1135,7 +1135,7 @@ class DiscreteRouseFit(Fit):
 
         self.constraints = [] # Don't need to check Cpositive, will always be true for Rouse MSDs
         
-    def logprior(self, params):
+    def base_logprior(self, params):
         return 0 # all priors are improper
 
     def params2msdm(self, params):
@@ -1272,7 +1272,7 @@ class NPFit(Fit):
         d = int(name[12:-1])
         return params[f'log(αΓ) (dim {d})'] - np.log(params[f'α (dim {d})'])
 
-    def logprior(self, params):
+    def base_logprior(self, params):
         names = [name for name in params if name.startswith('α')]
         return -np.sum([np.log(np.diff(self.parameters[name].bounds)[0]) for name in names])
 
@@ -1434,7 +1434,7 @@ class TwoLocusHeuristicFit(Fit):
         d = int(name[12:-1])
         return params[f'log(Γ) (dim {d})'] + params[f'log(τ) (dim {d})']*params[f'α (dim {d})']
 
-    def logprior(self, params):
+    def base_logprior(self, params):
         names_a = [name for name in params if name.startswith('α ')]
         names_n = [name for name in params if name.startswith('n ')]
         return (  np.sum([-np.log(np.diff(self.parameters[name].bounds)[0]) for name in names_a])
