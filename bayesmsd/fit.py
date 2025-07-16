@@ -917,7 +917,8 @@ msdfun(dt,
         def init_val(param):
             # if bounds are both finite: take center point
             try:
-                val = 0.5*(param.bounds[1]+param.bounds[0])
+                with np.errstate(invalid='raise'):
+                    val = 0.5*(param.bounds[1]+param.bounds[0])
             except FloatingPointError:
                 val = np.inf
 
