@@ -285,7 +285,52 @@ class Fit(metaclass=ABCMeta):
         """
         if len(self.independent_parameters()) == 0: # (e.g. marginalizing everything)
             return dict()
-        return self.run_lsq()
+
+        try:
+            return self.run_lsq()
+        except:
+            self.vprint(1, "Warning: curve fit failed, initializing from bounds (which is rough)")
+            return self.initial_params_from_bounds_only()
+
+    def initial_params_from_bounds_only(self):
+        """
+        Basic initial parameters determined from parameter bounds
+
+        This is used as initial parameters for curve fits; and if those fail
+        as initialization of the Bayesian fit.
+        """
+        init_params = {}
+        for name, param in self.parameters.items():
+            # if bounds are both finite: take center point
+            try:
+                with np.errstate(invalid='raise'):
+                    val = 0.5*(param.bounds[1]+param.bounds[0])
+            except FloatingPointError:
+                val = np.inf
+
+            if not np.isfinite(val):
+                # some bounds are infinite. Initialize:
+                # 0 if 0 in (b0, b1) (open interval)
+                # 2c for "definite" half-open intervals [c>0.5, np.inf) or (-np.inf, c<-0.5]
+                # +/-1 for [c<=0.5, np.inf), (-np.inf, c>=-0.5].
+                b0, b1 = param.bounds
+                if b0 < 0 and b1 > 0:
+                    val = 0
+                elif b0 > 0.5:
+                    val = 2*b0
+                elif b1 < -0.5:
+                    val = 2*b1
+                elif b0 == -np.inf:
+                    val = -1
+                elif b1 == np.inf:
+                    val = 1
+                else: # pragma: no cover
+                    # Shouldn't happen
+                    raise ValueError("Could not determine useful initial value")
+
+            init_params[name] = val
+
+        return init_params
 
     def initial_offset(self):
         """
@@ -913,37 +958,7 @@ msdfun(dt,
             dt[dt == -1] = np.inf # replace inf by -1 because curve_fit doesn't like x = ∞ input
             return np.log(np.sum([msd(dt) for msd, m in msdm], axis=0))
 
-        # Guess initial parameters for the curve fit (these can be very rough)
-        def init_val(param):
-            # if bounds are both finite: take center point
-            try:
-                with np.errstate(invalid='raise'):
-                    val = 0.5*(param.bounds[1]+param.bounds[0])
-            except FloatingPointError:
-                val = np.inf
-
-            if not np.isfinite(val):
-                # some bounds are infinite. Initialize:
-                # 0 if 0 in (b0, b1) (open interval)
-                # 2c for "definite" half-open intervals [c>0.5, np.inf) or (-np.inf, c<-0.5]
-                # +/-1 for [c<=0.5, np.inf), (-np.inf, c>=-0.5].
-                b0, b1 = param.bounds
-                if b0 < 0 and b1 > 0:
-                    val = 0
-                elif b0 > 0.5:
-                    val = 2*b0
-                elif b1 < -0.5:
-                    val = 2*b1
-                elif b0 == -np.inf:
-                    val = -1
-                elif b1 == np.inf:
-                    val = 1
-                else: # pragma: no cover
-                    # Shouldn't happen
-                    raise ValueError("Could not determine useful initial value")
-            return val
-
-        init_params = {key : init_val(param) for key, param in self.parameters.items()}
+        init_params = self.initial_params_from_bounds_only()
         init_params_arr = min_target.params_dict2array(init_params)
 
         # for key in self.parameters:
