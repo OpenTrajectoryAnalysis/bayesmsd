@@ -123,6 +123,13 @@ class Profiler():
         same as `!max_restarts` parameter.
     verbosity : int
         see Parameters
+    threshold_better_point_estimate : float
+        how much higher the likelihood of a parameter set has to be to be
+        considered a better point estimate. This should be greater than 0
+        (default: 1e-3) to block out numerical noise. If the posterior
+        evaluations contain additional noise for some reason (e.g. integration
+        error when some variables are marginalized), it can make sense to
+        increase this cutoff. See also `restart_on_better_point_estimate`.
     restart_on_better_point_estimate : bool
         whether to restart upon finding a better point estimate. Might make
         sense to disable if your posterior is rugged, to avoid restarting all
@@ -162,6 +169,7 @@ class Profiler():
         else:
             self.profiling = profiling # also sets self.LR_interval and self.LR_target
 
+        self.threshold_better_point_estimate = 1e-3
         self.restart_on_better_point_estimate = True
         
         self.bar = None
@@ -239,14 +247,13 @@ class Profiler():
     
     ### Point estimation ###
         
-    @staticmethod
-    def likelihood_significantly_greater(res1, res2):
+    def likelihood_significantly_greater(self, res1, res2):
         """
         Helper function
 
-        The threshold is 1e-3. Note that this is an asymmetric operation, i.e.
-        there is a regime where neither `!res1` significantly greater `!res2`
-        nor the other way round.
+        The threshold is set by `threshold_better_point_estimate`. Note that
+        this is an asymmetric operation, i.e.  there is a regime where neither
+        `!res1` significantly greater `!res2` nor the other way round.
 
         Parameters
         ----------
@@ -257,7 +264,7 @@ class Profiler():
         -------
         bool
         """
-        return res1['logL'] > res2['logL'] + 1e-3 # smaller differences are irrelevant for likelihoods
+        return res1['logL'] > res2['logL'] + self.threshold_better_point_estimate
             
     @property
     def best_estimate(self):
