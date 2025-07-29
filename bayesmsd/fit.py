@@ -1224,8 +1224,7 @@ msdfun(dt,
 
     @parallel.chunky('likelihood_chunksize', -1)
     def evidence(self, show_progress=False,
-                 conf = 0.8,
-                 conf_tol = 0.1,
+                 profiler_attributes={},
                  n_cred = 10,
                  n_steps_per_cred = 2,
                  f_integrate = 0.99,
@@ -1251,11 +1250,10 @@ msdfun(dt,
         ----------
         show_progress : bool
             display progress bar(s)
-        conf : float
-            confidence level for the initial `Profiler` run. Will usually be
-            some not-too-high value.
-        conf_tol : float
-            tolerance for `conf`. Usually relatively high.
+        profiler_attributes : dict
+            attributes for the initial profiler run (used to determine point
+            estimate and rough credible region). Most important: `!conf`
+            (default: 0.8), `!conf_tol` (default: 0.1).
         n_cred : float
             how far (at most) from the point estimate to evaluate the
             likelihood function, in multiples of the initial Profiler credible
@@ -1352,8 +1350,8 @@ msdfun(dt,
         n_steps = np.round(n_steps_per_cred*n_cred).astype(int)
 
         # Run profiler
-        profiler = Profiler(self, profiling=False, conf=conf, conf_tol=conf_tol)
-        profiler.verbosity = 0 # suppress everything, would just be confusing anyways
+        profiler = Profiler(self, profiling=False, conf=0.8, conf_tol=0.1, verbosity=0)
+        profiler.__dict__.update(profiler_attributes)
         if init_from_params is not None:
             pe = {}
             pe['params'] = self.fill_dependent_params(init_from_params)
