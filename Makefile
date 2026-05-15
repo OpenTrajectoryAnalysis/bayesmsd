@@ -1,5 +1,7 @@
 MODULE           = bayesmsd
 DISTDIR          = dist
+CYTHONVENV       = .venv_cython
+CYTHONPYTHON     = $(CYTHONVENV)/bin/python3
 CYTHONSRCDIR     = $(MODULE)/src
 CYTHONBINDIR     = $(MODULE)/bin
 CYTHONYELLOWDIR  = $(DOCDIR)/cython_yellow
@@ -9,8 +11,7 @@ TESTPYTHON       = ./$(TESTVENV)/bin/python3 -I
 TESTFILE         = $(TESTDIR)/test_bayesmsd.py
 COVERAGEREPFLAGS = --omit=*/noctiluca/*,*/rouse/*
 COVERAGEREPDIR   = $(TESTDIR)/coverage
-BUILDDIR         = build.env# protected by setuptools
-BUILDVENV        = $(BUILDDIR)/env
+BUILDVENV        = build.env# protected by setuptools
 BUILDPYTHON      = ./$(BUILDVENV)/bin/python3 -I
 LINUXPLAT        = linux_x86_64
 BUILDPLAT        = manylinux2014_x86_64
@@ -22,7 +23,9 @@ SPHINXBUILD      = $(SPHINXDIR)/source/_build
 
 PYTHON           = python3
 
-.PHONY : setup recompile yellow build pre-docs docs docs-latex tests clean
+.PHONY : setup cythonize recompile yellow build pre-docs docs docs-latex tests clean
+
+FORCE: # dummy target for forcing rebuilds
 
 setup :
 	nbstripout --install
@@ -33,17 +36,24 @@ $(TESTVENV) : # to rebuild: make -B <TESTVENV>
 	env PYTHONPATH= $(TESTPYTHON) -m ensurepip # ensurepip during venv ignores -I option
 	$(TESTPYTHON) -m pip install --upgrade pip
 	$(TESTPYTHON) -m pip install coverage
+	-$(TESTPYTHON) -m pip install $$($(CYTHONPYTHON) -m pip freeze | grep ^numpy)
+	-$(TESTPYTHON) -m pip install $$($(CYTHONPYTHON) -m pip freeze | grep ^scipy)
 	$(TESTPYTHON) -m pip install -e .
 
-$(CYTHONSRCDIR)/*.c : $(CYTHONSRCDIR)/*.pyx
-	$(PYTHON) -m pip install --upgrade-strategy only-if-needed -r cython_requirements.txt
-	$(PYTHON) -c "from setup import extensions, cythonize; cythonize(extensions)"
+$(CYTHONVENV) : # to rebuild: make -B <CYTHONVENV>
+	$(PYTHON) -m venv --clear $(CYTHONVENV)
+	$(CYTHONPYTHON) -m pip install --upgrade pip setuptools
+	$(CYTHONPYTHON) -m pip install --upgrade-strategy only-if-needed -r cython_requirements.txt
+
+$(CYTHONSRCDIR)/*.c : $(CYTHONSRCDIR)/*.pyx $(CYTHONVENV)
+	$(CYTHONPYTHON) -c "from setup import extensions, cythonize; cythonize(extensions)"
+
+cythonize: $(CYTHONSRCDIR)/*.c
 
 $(CYTHONBINDIR)/*.so : $(CYTHONSRCDIR)/*.c
 	mkdir -p $(CYTHONBINDIR)
 	-rm -r $(CYTHONBINDIR)/*
-	$(PYTHON) -m pip install --upgrade-strategy only-if-needed -r cython_requirements.txt
-	$(PYTHON) setup.py build_ext --inplace
+	$(CYTHONPYTHON) setup.py build_ext --inplace
 
 recompile : $(CYTHONBINDIR)/*.so
 
@@ -54,14 +64,16 @@ yellow : $(CYTHONSRCDIR)/*.pyx
 	@mv $(CYTHONSRCDIR)/*.html $(CYTHONYELLOWDIR)
 
 build : $(CYTHONSRCDIR)/*.c $(MODULE)/*.py
-	# set up venv
-	mkdir -p $(CYTHONBINDIR) $(BUILDDIR) $(DISTDIR)
+	@# clean
+	mkdir -p $(CYTHONBINDIR) $(DISTDIR)
 	-rm -r $(CYTHONBINDIR)/*
-	-rm -r $(BUILDDIR)/*
 	-rm -r $(DISTDIR)/*
+
+	@# set up venv
+	-rm -r $(BUILDVENV)
 	$(PYTHON) -m venv --clear $(BUILDVENV)
 	$(BUILDPYTHON) -m pip install --upgrade pip setuptools
-	$(BUILDPYTHON) -m pip install --upgrade build auditwheel patchelf
+	$(BUILDPYTHON) -m pip install --upgrade build patchelf auditwheel
 
 	# make python-only fall-back
 	PYTHON_ONLY=1 $(BUILDPYTHON) -m build --wheel
@@ -70,7 +82,8 @@ build : $(CYTHONSRCDIR)/*.c $(MODULE)/*.py
 	$(BUILDPYTHON) -m build -o $(DISTDIR)
 
 	# fix linux wheel
-	$(BUILDPYTHON) -m auditwheel repair --plat $(BUILDPLAT) \
+	@# auditwheel looks for patchelf in shell PATH, so provide it there (PATH=...)
+	PATH="$$PATH:$(BUILDVENV)/bin/" $(BUILDPYTHON) -m auditwheel repair --plat $(BUILDPLAT) \
 					    -w $(DISTDIR) \
 					    $(DISTDIR)/$(MODULE)-*-$(LINUXPLAT).whl
 	rm $(DISTDIR)/$(MODULE)-*-$(LINUXPLAT).whl
@@ -113,7 +126,8 @@ tests : recompile | $(TESTVENV)
 clean :
 	-rm -r $(CYTHONBINDIR)
 	-rm -r $(CYTHONYELLOWDIR)
-	-rm -r $(BUILDDIR)
+	-rm -r $(CYTHONVENV)
+	-rm -r $(BUILDVENV)
 	-rm -r $(DISTDIR)
 	-rm -r $(SPHINXBUILD)
 	-rm -r $(COVERAGEREPDIR)

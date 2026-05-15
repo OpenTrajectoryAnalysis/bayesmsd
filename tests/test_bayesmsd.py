@@ -15,7 +15,9 @@ from unittest.mock import patch
 
 import rouse
 import noctiluca as nl
-from context import bayesmsd
+
+sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
+import bayesmsd
 
 from multiprocessing import Pool
 
@@ -849,5 +851,6 @@ class TestFitSum(myTestCase):
 if __name__ == '__main__': # pragma: no cover
     import cProfile
     with cProfile.Profile() as pr:
-        unittest.main(module=__file__.split('/')[-1][:-3], exit=False)#, argv=sys.argv+['-v'])
+        # sys.path.insert(0, os.path.abspath(os.path.dirname(__file__)))
+        unittest.main(module='tests.'+__file__.split('/')[-1][:-3], exit=False)#, argv=sys.argv+['-v'])
         pr.dump_stats('/'.join(__file__.split('/')[:-1]+['profiling.stats']))
