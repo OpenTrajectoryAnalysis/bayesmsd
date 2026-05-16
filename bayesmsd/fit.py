@@ -1010,7 +1010,11 @@ msdfun(dt,
             all_var = np.append(all_var, 4*np.var(R2_ss))
 
         all_sem  = np.sqrt(all_var/all_N)
-        all_sem[all_N <= 1] = np.inf
+        all_sem[(all_N <= 1) | np.isnan(all_sem)] = np.inf
+        if not np.any(np.isfinite(all_sem)):
+            # no valid SEM; this happens e.g. for single trajectories
+            with np.errstate(divide='ignore'):
+                all_sem = 1/all_N
 
         # Run curve fit
         popt, _ = optimize.curve_fit(log_msdfun,

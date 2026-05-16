@@ -136,6 +136,10 @@ class TestDiffusive(myTestCase):
 
         params = fit.run_lsq()
 
+    def testLSQfit_single_trajectory(self):
+        fit = bayesmsd.lib.NPFit([self.data[0]])
+        params = fit.run_lsq()
+
     def testSpline(self):
         fit = bayesmsd.lib.SplineFit(self.data, ss_order=1, n=4)
         res = fit.run(verbosity=0, maxfev=500)
