@@ -92,6 +92,7 @@ class FitGroup(Fit):
                                 for fitname, fit in self.fits_dict.items()
                                 for paramname in fit.improper_priors
                                ]
+        self.properized_improper_priors_mean_std = {} # dict: {paramname : (mean, std)}
 
     ### FitGroup specific methods ###
 
@@ -136,43 +137,57 @@ class FitGroup(Fit):
 
         return group_params
 
-    def logprior(self, params):
+    def base_logprior(self, params):
         """
-        Aggregate log-priors from individual fits
+        Prior for the `!FitGroup` itself
 
-        Parameters
-        ----------
-        params : dict
-            parameters for which to evaluate the prior
-
-        Returns
-        -------
-        float
-            aggregated log-prior
-
-        Notes
-        -----
-        Which parameters are handed in with `!params` determines what is
-        considered a free parameter; so ensure to not hand in parameters that
-        factually are fixed.
-
-        The ability of a `!FitGroup` to calculate its prior is not really
-        necessary and not used in the code; this function is thus implemented
-        mostly for completeness/rigor (it is not necessary for
-        `!Fit.evidence()` to work; what we need there is just that the
-        individual fits take care of their respective priors respectively).
+        This comes on top of the priors that the individual fits supply and
+        should thus be uniformly 1 (or log = 0). The reason to implement and
+        use it here is the "properization" of improper priors done in
+        `!Fit.logprior()`: if we want to calculate evidences, we will supply
+        surrogate Gaussian priors to replace improper priors; this has to
+        happen at the "topmost" level, i.e. in the case of `!FitGroup` here,
+        instead of in the individual fits.
         """
-        pi = 0
-        for fitname, fit in self.fits_dict.items():
-            fit_params = {}
-            for paramname, val in params.items():
-                try:
-                    fit_params[self.make_fit_param_name(fitname, paramname)] = val
-                except RuntimeError:
-                    continue
+        return 0
 
-            pi += fit.logprior(fit_params)
-        return pi
+# old logprior implementation, which actually aggregates the priors (but is not used)
+#         """
+#         Aggregate log-priors from individual fits
+# 
+#         Parameters
+#         ----------
+#         params : dict
+#             parameters for which to evaluate the prior
+# 
+#         Returns
+#         -------
+#         float
+#             aggregated log-prior
+# 
+#         Notes
+#         -----
+#         Which parameters are handed in with `!params` determines what is
+#         considered a free parameter; so ensure to not hand in parameters that
+#         factually are fixed.
+# 
+#         The ability of a `!FitGroup` to calculate its prior is not really
+#         necessary and not used in the code; this function is thus implemented
+#         mostly for completeness/rigor (it is not necessary for
+#         `!Fit.evidence()` to work; what we need there is just that the
+#         individual fits take care of their respective priors respectively).
+#         """
+#         pi = 0
+#         for fitname, fit in self.fits_dict.items():
+#             fit_params = {}
+#             for paramname, val in params.items():
+#                 try:
+#                     fit_params[self.make_fit_param_name(fitname, paramname)] = val
+#                 except RuntimeError:
+#                     continue
+# 
+#             pi += fit.logprior(fit_params)
+#         return pi
 
     ### Things to keep as is in `Fit` ###
 
@@ -230,7 +245,6 @@ class FitGroup(Fit):
             # - self.params_to_constant
             # - self.params_to_other
             # - self.params_to_callable
-            self.paramnames_prior = [] # priors are taken care of by the component fits (see below)
 
             try:
                 adjust_prior_for_fixed_values = kwargs['adjust_prior_for_fixed_values']
@@ -269,6 +283,7 @@ class FitGroup(Fit):
 
         def eval_atomic(self, params_array):
             params_dict = self.params_array2dict(params_array)
+            params_prior = {name : params_dict[name] for name in self.paramnames_prior}
 
             penalty = self.fit._penalty(params_dict)
             if penalty < 0: # pragma: no cover
@@ -290,7 +305,8 @@ class FitGroup(Fit):
                 imap = parallel._map(self._eval_target, todo,
                                      chunksize=self.likelihood_chunksize,
                                      )
-                target_values = np.array([penalty] + list(imap))
+                pi = self.fit.logprior(params_prior) # only adds surrogates for improper priors
+                target_values = np.array([penalty, -pi] + list(imap)) # remember that target = -log(L)
 
                 total = np.sum(target_values)
                 if np.any(np.append(target_values, total) > self.fit.max_penalty): # pragma: no cover

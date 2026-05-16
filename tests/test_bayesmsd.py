@@ -123,6 +123,19 @@ class TestDiffusive(myTestCase):
 
         self.data = nl.TaggedSet((traj() for _ in range(10)), hasTags=False)
 
+    def testLSQfit(self):
+        fit = bayesmsd.lib.NPFit(self.data)
+
+        # Sample all the options for initializing dependent on bounds
+        for key in ['log(Γ) (dim 1)', 'log(Γ) (dim 2)', 'log(σ²) (dim 1)', 'log(σ²) (dim 2)']:
+            fit.parameters[key].fix_to = None
+        fit.parameters['log(Γ) (dim 1)'].bounds[:] = (0.01, np.inf)
+        fit.parameters['log(Γ) (dim 2)'].bounds[:] = (1, np.inf)
+        fit.parameters['log(σ²) (dim 1)'].bounds[:] = (-np.inf, -0.01)
+        fit.parameters['log(σ²) (dim 2)'].bounds[:] = (-np.inf, -1)
+
+        params = fit.run_lsq()
+
     def testSpline(self):
         fit = bayesmsd.lib.SplineFit(self.data, ss_order=1, n=4)
         res = fit.run(verbosity=0, maxfev=500)
@@ -191,6 +204,7 @@ class TestDiffusive(myTestCase):
         for dim in range(fit.d):
             fit.parameters[f"log(σ²) (dim {dim})"].fix_to = -np.inf 
         fit.parameters['log(αΓ) (dim 0)'].fix_to = '<marginalize>'
+        fit.properized_improper_priors_mean_std['log(αΓ) (dim 0)'] = (0, 5)
         res = fit.run()
 
     def test_python_vs_cython_logLs(self):
@@ -358,7 +372,7 @@ class TestRouseLoci(myTestCase):
         for dim in range(fit.d):
             fit.parameters[f"log(σ²) (dim {dim})"].fix_to = -np.inf
         res3 = fit.run()
-        self.assertAlmostEqual(res['logL'], res2['logL'], delta=0.01)
+        self.assertAlmostEqual(res['logL'], res3['logL'], delta=0.01)
 
     def testSS05trimming(self):
         fit = bayesmsd.lib.TwoLocusRouseFit(self.data)
@@ -379,7 +393,14 @@ class TestRouseLoci(myTestCase):
     def testEvidence(self):
         fit = bayesmsd.lib.TwoLocusRouseFit([self.data[0].dims([0])])
         fit.parameters[f"log(σ²) (dim 0)"].fix_to = -np.inf 
+
+        with self.assertRaises(ValueError): # still have improper priors
+            fit.evidence()
+
+        fit.properized_improper_priors_mean_std['log(Γ) (dim 0)'] = (0, 5)
+        fit.properized_improper_priors_mean_std['log(J) (dim 0)'] = (0, 5)
         ev, (xi, logL, logprior) = fit.evidence(return_evaluations=True)
+
         self.assertTrue(np.isfinite(ev))
         with np.errstate(under='ignore'):
             self.assertEqual(ev, special.logsumexp(logL+logprior))
@@ -394,11 +415,12 @@ class TestRouseLoci(myTestCase):
         ev = fit.evidence()
         self.assertTrue(np.isfinite(ev))
 
-
     def testEvidence_3D(self):
         fit = bayesmsd.lib.TwoLocusRouseFit([self.data[0]])
         for dim in range(fit.d):
             fit.parameters[f"log(σ²) (dim {dim})"].fix_to = -np.inf 
+        fit.properized_improper_priors_mean_std['log(Γ) (dim 0)'] = (0, 5)
+        fit.properized_improper_priors_mean_std['log(J) (dim 0)'] = (0, 5)
         ev = fit.evidence(init_from_params={'log(Γ) (dim 0)' : 0., 'log(J) (dim 0)' : 0.})
 
     @patch('builtins.print')
@@ -530,6 +552,9 @@ class TestFitGroup(myTestCase):
 
     def test_evidence(self):
         self.fitgroup.verbosity = 0
+        self.fitgroup.properized_improper_priors_mean_std['a log(σ²) (dim 0)'] = (0, 5)
+        self.fitgroup.properized_improper_priors_mean_std['b log(σ²) (dim 0)'] = (0, 5)
+        self.fitgroup.properized_improper_priors_mean_std['a log(αΓ) (dim 0)'] = (0, 5)
         with nl.Parallelize(2):
             ev = self.fitgroup.evidence(likelihood_chunksize=100)
         self.assertTrue(np.isfinite(ev))
@@ -542,17 +567,18 @@ class TestFitGroup(myTestCase):
 #         ev = self.fitgroup.evidence() # should just evaluate once
 #         self.assertTrue(np.isfinite(ev))
     
-    def test_logprior(self):
-        params = {
-                'a log(αΓ) (dim 0)' : -10,
-                'a α (dim 0)' : 0.7,
-                }
-        pi1 = self.fitgroup.logprior(params)
-
-        params['b α (dim 0)'] = 1.3
-        pi2 = self.fitgroup.logprior(params)
-
-        self.assertGreater(pi1, pi2)
+# logprior() got a different meaning in FitGroup now
+#     def test_logprior(self):
+#         params = {
+#                 'a log(αΓ) (dim 0)' : -10,
+#                 'a α (dim 0)' : 0.7,
+#                 }
+#         pi1 = self.fitgroup.logprior(params)
+# 
+#         params['b α (dim 0)'] = 1.3
+#         pi2 = self.fitgroup.logprior(params)
+# 
+#         self.assertGreater(pi1, pi2)
 
 class TestProfiler(myTestCase):
     # set up diffusive data set

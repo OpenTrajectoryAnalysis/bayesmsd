@@ -164,7 +164,7 @@ class SplineFit(Fit):
 
         self.prev_fit = previous_spline_fit_and_result # for (alternative) initialization
 
-    def logprior(self, params):
+    def base_logprior(self, params):
         nx = len([name for name in params if name.startswith('x')]) 
         return special.gammaln(nx+1) - nx*np.log(self.x_max)
 
@@ -562,7 +562,7 @@ class NPXFit(Fit): # NPX = Noise + Powerlaw + X (i.e. spline)
         d = int(name[12:-1])
         return params[f'log(αΓ) (dim {d})'] - np.log(params[f'α (dim {d})'])
 
-    def logprior(self, params):
+    def base_logprior(self, params):
         nx = len([name for name in params if name.startswith('x')]) 
         logpi = special.gammaln(nx+1) - nx*np.log(self.x_max)
 
@@ -999,7 +999,7 @@ class TwoLocusRouseFit(Fit):
         d = int(name[12:-1])
         return params[f'log(Γ) (dim {d})'] + 0.5*params[f'log(τ) (dim {d})']
 
-    def logprior(self, params):
+    def base_logprior(self, params):
         return 0 # all priors are improper
         
     def params2msdm(self, params):
@@ -1033,33 +1033,33 @@ class TwoLocusRouseFit(Fit):
             msdm.append((msd, params[f'm1 (dim {dim})']))
         return msdm
         
-    def initial_params(self):
-        """
-        Initial parameters from curve fit to empirical MSD
-
-        Returns
-        -------
-        params : dict
-        """
-        e_msd = MSD(self.data) / self.d
-        dt_valid = np.nonzero(np.isfinite(e_msd) & (e_msd > 0))[0]
-        dt_valid_early = dt_valid[:min(5, len(dt_valid))]
-
-        J = np.nanmean(np.concatenate([traj[:]**2 for traj in self.data], axis=0))
-        G = np.nanmean(e_msd[dt_valid_early]/np.sqrt(dt_valid_early))
-        noise2 = e_msd[dt_valid[0]]/2
-
-        params = {}
-        for dim in range(self.d):
-            params[f"log(σ²) (dim {dim})"] = np.log(noise2)
-            params[ f"log(Γ) (dim {dim})"] = np.log(G)
-            params[ f"log(τ) (dim {dim})"] = 2*np.log(J) - 2*np.log(G)
-            params[ f"log(J) (dim {dim})"] = np.log(J)
-
-        m1s = np.nanmean(np.concatenate([traj[:] for traj in self.data]), axis=0)
-        params.update({f"m1 (dim {dim})" : m1 for dim, m1 in enumerate(m1s)})
-
-        return params
+#     def initial_params(self):
+#         """
+#         Initial parameters from curve fit to empirical MSD
+# 
+#         Returns
+#         -------
+#         params : dict
+#         """
+#         e_msd = MSD(self.data) / self.d
+#         dt_valid = np.nonzero(np.isfinite(e_msd) & (e_msd > 0))[0]
+#         dt_valid_early = dt_valid[:min(5, len(dt_valid))]
+# 
+#         J = np.nanmean(np.concatenate([traj[:]**2 for traj in self.data], axis=0))
+#         G = np.nanmean(e_msd[dt_valid_early]/np.sqrt(dt_valid_early))
+#         noise2 = e_msd[dt_valid[0]]/2
+# 
+#         params = {}
+#         for dim in range(self.d):
+#             params[f"log(σ²) (dim {dim})"] = np.log(noise2)
+#             params[ f"log(Γ) (dim {dim})"] = np.log(G)
+#             params[ f"log(τ) (dim {dim})"] = 2*np.log(J) - 2*np.log(G)
+#             params[ f"log(J) (dim {dim})"] = np.log(J)
+# 
+#         m1s = np.nanmean(np.concatenate([traj[:] for traj in self.data]), axis=0)
+#         params.update({f"m1 (dim {dim})" : m1 for dim, m1 in enumerate(m1s)})
+# 
+#         return params
 
 class DiscreteRouseFit(Fit):
     r"""
@@ -1135,7 +1135,7 @@ class DiscreteRouseFit(Fit):
 
         self.constraints = [] # Don't need to check Cpositive, will always be true for Rouse MSDs
         
-    def logprior(self, params):
+    def base_logprior(self, params):
         return 0 # all priors are improper
 
     def params2msdm(self, params):
@@ -1165,32 +1165,32 @@ class DiscreteRouseFit(Fit):
             msdm.append((msd, params[f'm1 (dim {dim})']))
         return msdm
         
-    def initial_params(self):
-        """
-        Initial parameters from curve fit to empirical MSD
-
-        Returns
-        -------
-        params : dict
-        """
-        e_msd = MSD(self.data) / self.d
-        dt_valid = np.nonzero(np.isfinite(e_msd) & (e_msd > 0))[0]
-        dt_valid_early = dt_valid[:min(5, len(dt_valid))]
-
-        D = np.nanmean(e_msd[dt_valid_early]/dt_valid_early)
-        G = np.nanmean(e_msd[dt_valid_early]/np.sqrt(dt_valid_early))
-        noise2 = e_msd[dt_valid[0]]/2
-
-        params = {}
-        for dim in range(self.d):
-            params[f"log(σ²) (dim {dim})"] = np.log(noise2)
-            params[ f"log(D) (dim {dim})"] = np.log(D)
-            params[ f"log(Γ) (dim {dim})"] = np.log(G)
-
-        m1s = np.nanmean(np.concatenate([traj.diff()[:] for traj in self.data]), axis=0)
-        params.update({f"m1 (dim {dim})" : m1 for dim, m1 in enumerate(m1s)})
-
-        return params
+#     def initial_params(self):
+#         """
+#         Initial parameters from curve fit to empirical MSD
+# 
+#         Returns
+#         -------
+#         params : dict
+#         """
+#         e_msd = MSD(self.data) / self.d
+#         dt_valid = np.nonzero(np.isfinite(e_msd) & (e_msd > 0))[0]
+#         dt_valid_early = dt_valid[:min(5, len(dt_valid))]
+# 
+#         D = np.nanmean(e_msd[dt_valid_early]/dt_valid_early)
+#         G = np.nanmean(e_msd[dt_valid_early]/np.sqrt(dt_valid_early))
+#         noise2 = e_msd[dt_valid[0]]/2
+# 
+#         params = {}
+#         for dim in range(self.d):
+#             params[f"log(σ²) (dim {dim})"] = np.log(noise2)
+#             params[ f"log(D) (dim {dim})"] = np.log(D)
+#             params[ f"log(Γ) (dim {dim})"] = np.log(G)
+# 
+#         m1s = np.nanmean(np.concatenate([traj.diff()[:] for traj in self.data]), axis=0)
+#         params.update({f"m1 (dim {dim})" : m1 for dim, m1 in enumerate(m1s)})
+# 
+#         return params
 
 class NPFit(Fit):
     """
@@ -1272,7 +1272,7 @@ class NPFit(Fit):
         d = int(name[12:-1])
         return params[f'log(αΓ) (dim {d})'] - np.log(params[f'α (dim {d})'])
 
-    def logprior(self, params):
+    def base_logprior(self, params):
         names = [name for name in params if name.startswith('α')]
         return -np.sum([np.log(np.diff(self.parameters[name].bounds)[0]) for name in names])
 
@@ -1293,37 +1293,37 @@ class NPFit(Fit):
             
         return msdm
     
-    def initial_params(self):
-        params = {}
-        
-        e_msd = MSD(self.data)/self.d
-        dt_valid = np.nonzero(np.isfinite(e_msd) & (e_msd > 0))[0]
-        (alpha, logG), _ = optimize.curve_fit(lambda x, alpha, logG : alpha*x + logG,
-                                              np.log(dt_valid),
-                                              np.log(e_msd[dt_valid]),
-                                              p0=(1, 0),
-                                              bounds=([0.05, -np.inf], [1.95, np.inf]),
-                                          )
-        
-        logs2 = np.log(e_msd[dt_valid[0]]/2)
-        logs2 = min(self.parameters['log(σ²) (dim 0)'].bounds[1], logs2)
-
-        for dim in range(self.d):
-            params[f"log(σ²) (dim {dim})"] = logs2
-            params[ f"log(Γ) (dim {dim})"] = logG
-            params[      f"α (dim {dim})"] = alpha
-            params[f"log(αΓ) (dim {dim})"] = logG + np.log(alpha)
-
-        m1s = []
-        for traj in self.data:
-            ind = ~np.isnan(traj.abs()[:][:, 0])
-            dx = np.diff(traj[ind], axis=0)
-            dt = np.diff(np.nonzero(ind)[0])
-            m1s.append(dx/dt[:, None])
-        m1s = np.mean(np.concatenate(m1s), axis=0)
-        params.update({f"m1 (dim {dim})" : m1 for dim, m1 in enumerate(m1s)})
-
-        return params
+#     def initial_params(self):
+#         params = {}
+#         
+#         e_msd = MSD(self.data)/self.d
+#         dt_valid = np.nonzero(np.isfinite(e_msd) & (e_msd > 0))[0]
+#         (alpha, logG), _ = optimize.curve_fit(lambda x, alpha, logG : alpha*x + logG,
+#                                               np.log(dt_valid),
+#                                               np.log(e_msd[dt_valid]),
+#                                               p0=(1, 0),
+#                                               bounds=([0.05, -np.inf], [1.95, np.inf]),
+#                                           )
+#         
+#         logs2 = np.log(e_msd[dt_valid[0]]/2)
+#         logs2 = min(self.parameters['log(σ²) (dim 0)'].bounds[1], logs2)
+# 
+#         for dim in range(self.d):
+#             params[f"log(σ²) (dim {dim})"] = logs2
+#             params[ f"log(Γ) (dim {dim})"] = logG
+#             params[      f"α (dim {dim})"] = alpha
+#             params[f"log(αΓ) (dim {dim})"] = logG + np.log(alpha)
+# 
+#         m1s = []
+#         for traj in self.data:
+#             ind = ~np.isnan(traj.abs()[:][:, 0])
+#             dx = np.diff(traj[ind], axis=0)
+#             dt = np.diff(np.nonzero(ind)[0])
+#             m1s.append(dx/dt[:, None])
+#         m1s = np.mean(np.concatenate(m1s), axis=0)
+#         params.update({f"m1 (dim {dim})" : m1 for dim, m1 in enumerate(m1s)})
+# 
+#         return params
 
 class TwoLocusHeuristicFit(Fit):
     r"""
@@ -1434,7 +1434,7 @@ class TwoLocusHeuristicFit(Fit):
         d = int(name[12:-1])
         return params[f'log(Γ) (dim {d})'] + params[f'log(τ) (dim {d})']*params[f'α (dim {d})']
 
-    def logprior(self, params):
+    def base_logprior(self, params):
         names_a = [name for name in params if name.startswith('α ')]
         names_n = [name for name in params if name.startswith('n ')]
         return (  np.sum([-np.log(np.diff(self.parameters[name].bounds)[0]) for name in names_a])
@@ -1464,31 +1464,31 @@ class TwoLocusHeuristicFit(Fit):
             msdm.append((msd, params[f'm1 (dim {dim})']))
         return msdm
 
-    def initial_params(self):
-        e_msd = MSD(self.data) / self.d
-        dt_valid = np.nonzero(np.isfinite(e_msd) & (e_msd > 0))[0]
-        dt_valid_early = dt_valid[:min(5, len(dt_valid))]
-
-        J = np.nanmean(np.concatenate([traj[:]**2 for traj in self.data], axis=0))
-        (a, logG), _ = optimize.curve_fit(lambda x, a, logG : a*x + logG,
-                                          np.log(dt_valid_early),
-                                          np.log(e_msd[dt_valid_early]),
-                                          p0=(1, 0),
-                                          bounds=([0.05, -np.inf], [1., np.inf]),
-                                          )
-        G = np.exp(logG)
-        noise2 = e_msd[dt_valid[0]]/2
-
-        params = {}
-        for dim in range(self.d):
-            params[f"log(σ²) (dim {dim})"] = np.log(noise2)
-            params[      f"α (dim {dim})"] = a
-            params[ f"log(Γ) (dim {dim})"] = np.log(G)
-            params[ f"log(τ) (dim {dim})"] = (np.log(J)-np.log(G))/a
-            params[ f"log(J) (dim {dim})"] = np.log(J)
-            params[      f"n (dim {dim})"] = 2
-
-        m1s = np.nanmean(np.concatenate([traj[:] for traj in self.data]), axis=0)
-        params.update({f"m1 (dim {dim})" : m1 for dim, m1 in enumerate(m1s)})
-
-        return params
+#     def initial_params(self):
+#         e_msd = MSD(self.data) / self.d
+#         dt_valid = np.nonzero(np.isfinite(e_msd) & (e_msd > 0))[0]
+#         dt_valid_early = dt_valid[:min(5, len(dt_valid))]
+# 
+#         J = np.nanmean(np.concatenate([traj[:]**2 for traj in self.data], axis=0))
+#         (a, logG), _ = optimize.curve_fit(lambda x, a, logG : a*x + logG,
+#                                           np.log(dt_valid_early),
+#                                           np.log(e_msd[dt_valid_early]),
+#                                           p0=(1, 0),
+#                                           bounds=([0.05, -np.inf], [1., np.inf]),
+#                                           )
+#         G = np.exp(logG)
+#         noise2 = e_msd[dt_valid[0]]/2
+# 
+#         params = {}
+#         for dim in range(self.d):
+#             params[f"log(σ²) (dim {dim})"] = np.log(noise2)
+#             params[      f"α (dim {dim})"] = a
+#             params[ f"log(Γ) (dim {dim})"] = np.log(G)
+#             params[ f"log(τ) (dim {dim})"] = (np.log(J)-np.log(G))/a
+#             params[ f"log(J) (dim {dim})"] = np.log(J)
+#             params[      f"n (dim {dim})"] = 2
+# 
+#         m1s = np.nanmean(np.concatenate([traj[:] for traj in self.data]), axis=0)
+#         params.update({f"m1 (dim {dim})" : m1 for dim, m1 in enumerate(m1s)})
+# 
+#         return params

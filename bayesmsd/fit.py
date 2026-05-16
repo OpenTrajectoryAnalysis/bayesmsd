@@ -14,6 +14,7 @@ import numpy as np
 from scipy import optimize, special, stats
 
 from noctiluca import make_TaggedSet, parallel
+from noctiluca.analysis import MSD
 
 from .gp import GP, msd2C_fun
 from .deco import method_verbosity_patch
@@ -182,6 +183,7 @@ class Fit(metaclass=ABCMeta):
         # List of those parameter names that have improper priors
         # Remember to define ``self.logprior`` for those that have proper priors!
         self.improper_priors = []
+        self.properized_improper_priors_mean_std = {} # dict: {paramname : (mean, std)}
 
     def vprint(self, v, *args, **kwargs):
         """
@@ -219,13 +221,15 @@ class Fit(metaclass=ABCMeta):
         """
         raise NotImplementedError # pragma: no cover
 
-    def logprior(self, params):
+    @abstractmethod
+    def base_logprior(self, params):
         """
         Prior over the parameters
 
-        Use this function if you want to specify a prior over the parameters
-        that will be added to the log-likelihood.  Default is a flat prior,
-        i.e. ``return 0``.
+        This function should be implemented upon subclassing `!Fit` and
+        calculate all the proper priors; parameters with improper priors should
+        be defined such that their prior is uniform 1 over (-∞, +∞). E.g.
+        instead of using Γ > 0 with prior 1/Γ, use log(Γ) in IR with prior 1.
 
         Parameters
         ----------
@@ -240,8 +244,27 @@ class Fit(metaclass=ABCMeta):
         # Since we included the possibility to calculate evidences, model
         # implementations need to actually take care of the prior
         raise NotImplementedError # pragma: no cover
+
+    def logprior(self, params):
+        """
+        Calculate full prior, taking into account "properized" priors.
+
+        Parameters
+        ----------
+        params : dict
+
+        Returns
+        -------
+        float
+        """
+        logpi = self.base_logprior(params)
+        for name in self.properized_improper_priors_mean_std:
+            if name in params:
+                m, s = self.properized_improper_priors_mean_std[name]
+                logpi += stats.norm(loc=m, scale=s).logpdf(params[name])
+
+        return logpi
     
-    @abstractmethod
     def initial_params(self):
         """
         Give initial values for the parameters
@@ -250,13 +273,64 @@ class Fit(metaclass=ABCMeta):
         the empirical MSD, using `!noctiluca.analysis.MSD`) or just return
         constants.
 
+        Defaults to a simple curve fit to the empirical MSD (which might not be
+        appropriate for all custom fits, especially those containing inequality
+        constraints!)
+
         Returns
         -------
         params : dict
             initial values for the parameters. Should have the same keys as
             ``self.parameters``.
         """
-        raise NotImplementedError # pragma: no cover
+        if len(self.independent_parameters()) == 0: # (e.g. marginalizing everything)
+            return dict()
+
+        try:
+            return self.run_lsq()
+        except:
+            self.vprint(1, "Warning: curve fit failed, initializing from bounds (which is rough)")
+            return self.initial_params_from_bounds_only()
+
+    def initial_params_from_bounds_only(self):
+        """
+        Basic initial parameters determined from parameter bounds
+
+        This is used as initial parameters for curve fits; and if those fail
+        as initialization of the Bayesian fit.
+        """
+        init_params = {}
+        for name, param in self.parameters.items():
+            # if bounds are both finite: take center point
+            try:
+                with np.errstate(invalid='raise'):
+                    val = 0.5*(param.bounds[1]+param.bounds[0])
+            except FloatingPointError:
+                val = np.inf
+
+            if not np.isfinite(val):
+                # some bounds are infinite. Initialize:
+                # 0 if 0 in (b0, b1) (open interval)
+                # 2c for "definite" half-open intervals [c>0.5, np.inf) or (-np.inf, c<-0.5]
+                # +/-1 for [c<=0.5, np.inf), (-np.inf, c>=-0.5].
+                b0, b1 = param.bounds
+                if b0 < 0 and b1 > 0:
+                    val = 0
+                elif b0 > 0.5:
+                    val = 2*b0
+                elif b1 < -0.5:
+                    val = 2*b1
+                elif b0 == -np.inf:
+                    val = -1
+                elif b1 == np.inf:
+                    val = 1
+                else: # pragma: no cover
+                    # Shouldn't happen
+                    raise ValueError("Could not determine useful initial value")
+
+            init_params[name] = val
+
+        return init_params
 
     def initial_offset(self):
         """
@@ -596,7 +670,7 @@ msdfun(dt,
         fix_values_resolution_order : list of str
             list of parameter names. The fixes in `!fix_values` will be
             executed in this order.
-        param_names : list of str
+        params_free : list of str
             list of parameter names that remain independent; this determines
             the order of entries when converting parameter dicts to arrays.
         offset : float
@@ -838,6 +912,119 @@ msdfun(dt,
             return profiler.find_MCI()
 
     @method_verbosity_patch
+    def run_lsq(self,
+                fix_values=None,
+                warn_ignore_constraints=True,
+                ):
+        """
+        Run least squares fit.
+        
+        Parameters
+        ----------
+        fix_values : dict, optional
+            can be used to keep some parameter values fixed or express them as
+            function of the other parameters. See class doc for more details.
+        warn_ignore_constraints : bool, optional
+            whether to warn about ignoring inequality constraints
+
+        Returns
+        -------
+        dict
+            the best-fit parameters (filled up with dependent and fixed
+            parameters)
+
+        Notes
+        -----
+        This function ignores inequality constraints (``self.constraints``). If
+        those are important, you might have to implement the curve fit
+        yourself, using the implementation of this function as a starting
+        point.
+        """
+        # Can we do something about the inequality constraints?
+        if len(self.constraints) > 0 and warn_ignore_constraints: # pragma: no cover
+            self.vprint(1, "Warning: ignoring inequality constraints in curve "
+                           "fit. This warning can be disabled with "
+                           "`warn_ignore_constraints=False`")
+
+        # Use MinTarget to convert between params dicts and arrays
+        min_target = self.MinTarget(self, fix_values=fix_values)
+
+        def log_msdfun(dt, *params_arr):
+            # use dt, not log(dt); it doesn't matter for optimize.curve_fit() but
+            # e.g. 10/np.exp(np.log(10)) = 1.0000000000000002 > 1 which makes
+            # (1-phi)**alpha error out. ( so: avoid exp(log(.)) )
+            params = min_target.params_array2dict(np.array(params_arr))
+            msdm = self.params2msdm(params)
+            dt[dt == -1] = np.inf # replace inf by -1 because curve_fit doesn't like x = ∞ input
+            return np.log(np.sum([msd(dt) for msd, m in msdm], axis=0))
+
+        init_params = self.initial_params_from_bounds_only()
+        init_params_arr = min_target.params_dict2array(init_params)
+
+        # for key in self.parameters:
+        #     print(key, self.parameters[key].bounds, init_params[key])
+
+        # Get bounds for each of the parameters
+        bounds = [self.parameters[name].bounds for name in min_target.params_free] # N x 2
+        bounds = tuple(np.array(bounds).T)                                         # 2 x N, tuple
+
+        # Need to take into account different time lags Δt (potentially)
+        self.data.restoreSelection(self.data_selection)
+        unique_dts = np.unique([traj.meta.get('Δt', 1) for traj in self.data])
+        i_msd_var_N = {}
+        for dt in unique_dts:
+            self.data.restoreSelection(self.data_selection)
+            self.data.refineSelection(lambda traj, _: traj.meta.get('Δt', 1) == dt)
+            assert len(self.data) > 0
+
+            e_msd, var, N = MSD(self.data, givevar=True, giveN=True)
+            dt_valid = np.nonzero(np.isfinite(e_msd) & (e_msd > 0))[0]
+            e_msd = e_msd[dt_valid]
+            var   = var  [dt_valid]
+            N     = N    [dt_valid]
+
+            i_msd_var_N[dt] = (dt_valid, e_msd, var, N)
+
+        all_dt = np.unique(np.concatenate([dt*i_msd_var_N[dt][0] for dt in unique_dts]))
+        all_msd = np.zeros(len(all_dt), dtype=float)
+        all_var = np.zeros(len(all_dt), dtype=float)
+        all_N   = np.zeros(len(all_dt), dtype=float)
+        for dt, (i, e_msd, var, N) in i_msd_var_N.items():
+            my_dt = dt*i
+            ind = np.array([x in my_dt for x in all_dt]) # use np.isin() in numpy>=2
+            all_msd[ind] += N*e_msd
+            all_var[ind] += N*var
+            all_N[ind]   += N
+
+        all_msd /= all_N
+        all_var /= all_N
+
+        if self.ss_order < 1: # add steady state variance
+            self.data.restoreSelection(self.data_selection)
+            R2_ss = np.concatenate([traj.abs()[:][:, 0]**2 for traj in self.data])
+            R2_ss = R2_ss[~np.isnan(R2_ss)]
+
+            all_dt  = np.append(all_dt,  -1) # use -1 instead of ∞; c.f. msdfun
+            all_msd = np.append(all_msd, 2*np.mean(R2_ss))
+            all_N   = np.append(all_N,   len(R2_ss))
+            all_var = np.append(all_var, 4*np.var(R2_ss))
+
+        all_sem  = np.sqrt(all_var/all_N)
+        all_sem[all_N <= 1] = np.inf
+
+        # Run curve fit
+        popt, _ = optimize.curve_fit(log_msdfun,
+                                     all_dt,
+                                     np.log(all_msd),
+                                     sigma=all_sem,
+                                     p0=init_params_arr,
+                                     bounds=bounds,
+                                     )
+
+        params = min_target.params_array2dict(popt)
+        return params
+
+    @method_verbosity_patch
     def run(self,
             init_from = None,
             optimization_steps=('simplex',),
@@ -1000,7 +1187,8 @@ msdfun(dt,
                     self.vprint(2, "BadCovarianceError:", err)
                     fitres = lambda: None # hack: lambdas allow free assignment of attributes
                     fitres.success = False
-                except min_target.xatolConverged:
+                except min_target.xatolConverged: # pragma: no cover # got rare since forcing proper
+                                                                     # priors in evidence
                     all_f = np.array([f for f, _ in min_target.memo_evals])
                     i_best = np.argmin(all_f)
                     fitres = lambda : None
@@ -1036,18 +1224,22 @@ msdfun(dt,
 
     @parallel.chunky('likelihood_chunksize', -1)
     def evidence(self, show_progress=False,
-                 conf = 0.8,
-                 conf_tol = 0.1,
+                 profiler_attributes={},
                  n_cred = 10,
                  n_steps_per_cred = 2,
                  f_integrate = 0.99,
-                 log10L_improper = 3,
                  return_mci=False,
                  return_evaluations=False,
                  init_from_params=None,
                 ):
         """
         Estimate evidence for this model
+
+        When calculating evidences, your model needs to have all proper priors.
+        To achieve this, make sure that any name listed in
+        `!Fit.improper_priors` (or at the very least those that are also
+        reported by `!Fit.independent_parameters()`) has a corresponding entry
+        in `!Fit.properized_improper_priors_mean_std`.
 
         The parameters to this function are mostly technical and can remain at
         their default values for most use cases. It is possible that in some
@@ -1058,11 +1250,10 @@ msdfun(dt,
         ----------
         show_progress : bool
             display progress bar(s)
-        conf : float
-            confidence level for the initial `Profiler` run. Will usually be
-            some not-too-high value.
-        conf_tol : float
-            tolerance for `conf`. Usually relatively high.
+        profiler_attributes : dict
+            attributes for the initial profiler run (used to determine point
+            estimate and rough credible region). Most important: `!conf`
+            (default: 0.8), `!conf_tol` (default: 0.1).
         n_cred : float
             how far (at most) from the point estimate to evaluate the
             likelihood function, in multiples of the initial Profiler credible
@@ -1075,8 +1266,6 @@ msdfun(dt,
             likelihood will be evaluated. Can be interpreted as "if the
             posterior was Gaussian, we would cover at least a fraction f of its
             mass".
-        log10L_improper : float
-            width of surrogate prior for improper priors. See Notes.
         likelihood_chunksize : int
             see class description; here a chunksize of 1 corresponds to a
             single call to the fit likelihood.
@@ -1138,48 +1327,31 @@ msdfun(dt,
 
         For the resulting evidence value to be accurate and comparable across
         different models, it is tantamount that the priors be properly
-        normalized. This means that a) use this function only with models that
-        implement the `logprior` function correctly; b) models with improper
-        priors (e.g. for localization error we usually use a log-flat prior)
-        are problematic. We sneak around the latter issue with a debatable
-        method: for the cases where we have improper priors, we fix a suitable,
-        broad, and importantly proper prior on the location of the point
-        estimate. This approach is clearly suspicious, because we fix the
-        *prior* to a result from the data. One might argue that at the end of
-        the day we are basically "just" fixing the order of magnitude (think:
-        units) of a given parameter, which we might also do by checking the
-        experimental protocol. But at the end of the day, it remains a
-        questionable method; any reader with better ideas for how to handle
-        this case should email me.
-
-        Having accepted the dubious approach to improper priors: the surrogate
-        (proper) prior we finally use is a Gaussian with standard deviation
-        ``log(10)*log10L_improper``. The idea here is that if the improper
-        prior is log-flat (my most common use case), the parameter
-        `log10L_improper` basically gives the number of valid digits in a
-        parameter estimate that we would accept as "not fine tuned".
-        Specifically: consider "fitting" a model without any parameters; if I
-        can improve upon that fit by introducing one new parameter with the
-        value 17, we might accept the second model as reasonable; if the fit
-        only improves if I fix the new parameter to 17.2193427, we might say
-        that the new model requires too much fine tuning. Upon personal
-        reflection, ``log10L_improper = 3`` valid digits seems to be
-        reasonable; reasonable people might differ.
+        normalized.
         """
         names = self.independent_parameters()
         if len(names) == 0:
             # no free parameters; just return likelihood
             return self.MinTarget(self)(np.array([]))
 
+        # Check that we have proper priors for everything
+        still_improper = [name for name in names
+                          if (name in self.improper_priors
+                              and name not in self.properized_improper_priors_mean_std)]
+        if len(still_improper) > 0:
+            raise ValueError("Cannot calculate evidence with improper priors; "
+                             "use `Fit.properized_improper_priors_mean_std` to "
+                             "supply mean and standard deviation for a Gaussian "
+                             f"surrogate prior. Surrogates are missing for {still_improper}.")
+
         # Note: line_profiler shows that chi2.ppf() is quite slow; amounting to
         # ~5% of total runtime on an example trajectory
         DlogL = stats.chi2(df=len(names)).ppf(f_integrate)/2
         n_steps = np.round(n_steps_per_cred*n_cred).astype(int)
-        sigma_improper = np.log(10)*log10L_improper
 
         # Run profiler
-        profiler = Profiler(self, profiling=False, conf=conf, conf_tol=conf_tol)
-        profiler.verbosity = 0 # suppress everything, would just be confusing anyways
+        profiler = Profiler(self, profiling=False, conf=0.8, conf_tol=0.1, verbosity=0)
+        profiler.__dict__.update(profiler_attributes)
         if init_from_params is not None:
             pe = {}
             pe['params'] = self.fill_dependent_params(init_from_params)
@@ -1188,30 +1360,6 @@ msdfun(dt,
 
         mci = profiler.find_MCI(show_progress=show_progress)
         assert set(mci.keys()) == set(names)
-        
-        # Adjust for improper priors
-        def compactify(x, x0):
-            return special.erf((x-x0)/sigma_improper)
-        def decompactify(y, x0):
-            return special.erfinv(y)*sigma_improper + x0
-
-        impropers = [name for name in names if name in self.improper_priors]
-        compactified_bounds = {} # bounds for impropers, that are guaranteed to be safe under decompactify
-        for name in impropers:
-            x0 = mci[name][0]
-            bounds = compactify(self.parameters[name].bounds, x0)
-            while decompactify(bounds[0], x0) < self.parameters[name].bounds[0]:
-                bounds[0] *= 0.99
-            while decompactify(bounds[1], x0) > self.parameters[name].bounds[1]:
-                bounds[1] *= 0.99
-            compactified_bounds[name] = bounds
-
-            ci = compactify(mci[name][1], x0)
-            ci[0] = max(bounds[0], ci[0])
-            ci[1] = min(bounds[1], ci[1])
-
-            mci[name+'_orig'] = mci[name]
-            mci[name] = (0., ci)
 
         # Assemble parameter grid
         xi = []
@@ -1220,41 +1368,15 @@ msdfun(dt,
             
             x_lo = x_point + n_cred*(mci[name][1][0]-x_point)
             x_min = self.parameters[name].bounds[0]
-            if name in impropers:
-                x_min = compactified_bounds[name][0]
             
             x_hi = x_point + n_cred*(mci[name][1][1]-x_point)
             x_max = self.parameters[name].bounds[1]
-            if name in impropers:
-                x_max = compactified_bounds[name][1]
             
             x = np.concatenate([np.linspace(x_lo, x_point, n_steps+1)[:-1],
                                 [x_point],
                                 np.linspace(x_point, x_hi, n_steps+1)[1:],
                                ])
-            
-            # make sure that we evaluate only in-bounds grid points
-            # Note: for parameters with proper parameters, this is actually
-            # unnecessary, since the likelihood will just return the penalty
-            # term. But for parameters with improper priors we need to ensure
-            # that we only use valid values; so let's just do it for all of
-            # them together.
-            # Note: it is important to use <= (not just <), for cases where the
-            # point estimate sits on the boundary of the parameter range. In
-            # those cases the whole positive half of x will be equal (to 0), so
-            # delta == 0.
-            delta = 0.1*(x[1]-x[0])
-            ind = np.nonzero(x-x_min <= delta)[0] # too small
-            if len(ind) > 0:
-                x[ind] = np.nan
-                x[ind[-1]] = x_min
-                
-            delta = 0.1*(x[-1]-x[-2])
-            ind = np.nonzero(x_max-x <= delta)[0] # too large
-            if len(ind) > 0:
-                x[ind] = np.nan
-                x[ind[0]] = x_max
-                
+
             xi.append(x)
 
         # Calculate parameter space volume (i.e. prior) for each grid cell
@@ -1273,15 +1395,8 @@ msdfun(dt,
             dx_m = np.insert(0.5*dx, 0, 0)
             dx_p = np.append(0.5*dx, 0)
 
-            # Make sure to correctly account for nan's (i.e. parameter bounds)
-            dx_m[np.isnan(x) | np.isnan(dx_m)] = 0.
-            dx_p[np.isnan(x) | np.isnan(dx_p)] = 0.
-
             with np.errstate(divide='ignore'): # log(0) for dx=nan=0
                 logprior = logprior[..., None] + np.log(dx_p+dx_m)
-
-            if name in impropers: # others should be accounted for in self.logprior() !
-                logprior -= np.log(2)
             
         # Set up likelihood evaluations
         i_center = (logprior.shape[0]-1)//2
@@ -1290,11 +1405,6 @@ msdfun(dt,
 
         logL = np.empty(logprior.shape, dtype=float)
         logL[:] = -np.inf
-        
-        # Decompactify grid values
-        for i, name in enumerate(names):
-            if name in impropers:
-                xi[i] = decompactify(xi[i], mci[name+'_orig'][0])
 
         # Progress display
         bar = tqdm(disable = not show_progress, desc='evidence integration')
@@ -1309,7 +1419,7 @@ msdfun(dt,
             xlist = np.array([[x[i] for x, i in zip(xi, ind)] for ind in ilist])
             ind_nans = np.any(np.isnan(xlist), axis=-1)
 
-            for ind in ilist[ind_nans]:
+            for ind in ilist[ind_nans]: # pragma: no cover # shouldn't happen anymore (improper priors)
                 # Important for detecting that we did (attempt to) evaluate this point
                 logL[tuple(ind)] = -self.max_penalty
 
