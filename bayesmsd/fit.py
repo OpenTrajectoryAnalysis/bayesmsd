@@ -287,10 +287,17 @@ class Fit(metaclass=ABCMeta):
             return dict()
 
         try:
-            return self.run_lsq()
+            init_lsq = self.run_lsq()
         except:
             self.vprint(1, "Warning: curve fit failed, initializing from bounds (which is rough)")
             return self.initial_params_from_bounds_only()
+
+        # Check whether this is actually better than the rough guess from bounds
+        init_from_bounds = self.initial_params_from_bounds_only()
+        if self.logL(init_lsq) < self.logL(init_from_bounds):
+            self.vprint(2, "Curve fit returned worse result than guess from parameter bounds; using the latter")
+            return init_from_bounds
+        return init_lsq
 
     def initial_params_from_bounds_only(self):
         """
@@ -824,11 +831,13 @@ msdfun(dt,
                     self.fit.vprint(1, "BadCovarianceError:", err)
                     return self.fit.max_penalty
 
-                return (- logL
-                        - self.fit.logprior(params_prior)
-                        + penalty
-                        - self.offset
-                        )
+                target_value = (
+                    - logL
+                    - self.fit.logprior(params_prior)
+                    + penalty
+                    - self.offset
+                )
+                return target_value
 
         def __call__(self, params_array):
             """

@@ -276,10 +276,13 @@ class FitGroup(Fit):
                 self.mintargets[fitname] = target
 
         @staticmethod
-        def _eval_target(target_and_params):
+        def _eval_target(args):
             # for parallelization
-            target, params = target_and_params
-            return target(params)
+            fitname, target, params = args
+            try:
+                return target(params)
+            except Exception as e: # pragma: no cover
+                raise RuntimeError(f"Error while evaluating fit '{fitname}' with parameters {params}") from e
 
         def eval_atomic(self, params_array):
             params_dict = self.params_array2dict(params_array)
@@ -300,7 +303,7 @@ class FitGroup(Fit):
 
                         params_dict_fit[paramname] = paramval
 
-                    todo.append((target, target.params_dict2array(params_dict_fit)))
+                    todo.append((fitname, target, target.params_dict2array(params_dict_fit)))
 
                 imap = parallel._map(self._eval_target, todo,
                                      chunksize=self.likelihood_chunksize,
